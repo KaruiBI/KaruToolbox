@@ -3,6 +3,7 @@ name = "karui-toolbox"
 version = "1.0.0"
 description = "Karui 工具箱 Desktop App"
 authors = ["Mr·Fan"]
+license = "MIT"
 edition = "2021"
 rust-version = "1.77.2"
 default-run = "karui-toolbox"

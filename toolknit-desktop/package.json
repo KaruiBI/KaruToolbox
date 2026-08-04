@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "author": "Mr·Fan",
   "publisher": "dk-plus",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite",

@@ -34,3 +34,9 @@ toolknit-desktop/src-tauri/resources/ffmpeg/ffmpeg.exe
 ```powershell
 npm run tauri dev
 ```
+
+## 开源许可
+
+- 原项目版权与 MIT License 保留在 [LICENSE](LICENSE)。
+- Karui 工具箱新增或重写的全部内容，包括界面、功能逻辑、交互、配置、桌面端代码、构建与打包脚本及文档，由 Mr·Fan 和 dk-plus 以 [MIT License](LICENSE-KARUI) 开源。
+- 版权归属说明见 [NOTICE](NOTICE)。

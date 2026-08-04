@@ -1,0 +1,13 @@
+Karui Toolbox
+Copyright (c) 2026 Mr·Fan and dk-plus
+
+All Karui-specific original contributions are made available under the MIT
+License in LICENSE-KARUI. These contributions include, without limitation,
+new and modified user interfaces, application logic, features, interactions,
+localization, configuration, desktop integration, build scripts, packaging,
+documentation, and other source-code changes created for Karui Toolbox.
+
+This project is derived from ToolKnit Desktop. Code and assets inherited from
+the original project remain subject to their original copyright and the MIT
+License preserved in LICENSE. Nothing in LICENSE-KARUI replaces or removes
+the rights and notices of the original authors or third-party dependencies.
