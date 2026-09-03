@@ -88,6 +88,37 @@ struct InstallConfig {
     install_path: String,
 }
 
+fn get_storage_override() -> Option<String> {
+    let config_file = dirs::data_local_dir()?
+        .join("KaruiToolbox")
+        .join("storage_config.json");
+    let content = std::fs::read_to_string(config_file).ok()?;
+    let config: serde_json::Value = serde_json::from_str(&content).ok()?;
+    config.get("storagePath")
+        .and_then(|value| value.as_str())
+        .filter(|path| !path.trim().is_empty())
+        .map(str::to_string)
+}
+
+#[tauri::command]
+fn set_storage_path(path: String) -> Result<String, String> {
+    let trimmed = path.trim();
+    let storage_path = std::path::PathBuf::from(trimmed);
+    if trimmed.is_empty() || !storage_path.is_absolute() {
+        return Err("存储位置必须是有效的绝对路径".to_string());
+    }
+    std::fs::create_dir_all(&storage_path).map_err(|e| format!("无法创建存储目录: {}", e))?;
+
+    let config_dir = dirs::data_local_dir()
+        .ok_or("Cannot find local data directory")?
+        .join("KaruiToolbox");
+    std::fs::create_dir_all(&config_dir).map_err(|e| e.to_string())?;
+    let content = serde_json::to_string_pretty(&serde_json::json!({ "storagePath": trimmed }))
+        .map_err(|e| e.to_string())?;
+    std::fs::write(config_dir.join("storage_config.json"), content).map_err(|e| e.to_string())?;
+    Ok(storage_path.to_string_lossy().to_string())
+}
+
 #[tauri::command]
 fn get_install_config() -> Result<InstallConfig, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
@@ -115,7 +146,7 @@ fn get_install_config() -> Result<InstallConfig, String> {
             .unwrap_or_default();
         return Ok(InstallConfig {
             language: "zh".to_string(),
-            install_path: default_path,
+            install_path: get_storage_override().unwrap_or(default_path),
         });
     }
     
@@ -128,10 +159,10 @@ fn get_install_config() -> Result<InstallConfig, String> {
         .and_then(|v| v.as_str())
         .unwrap_or("en")
         .to_string();
-    let install_path = config.get("installPath")
+    let install_path = get_storage_override().unwrap_or_else(|| config.get("installPath")
         .and_then(|v| v.as_str())
         .unwrap_or("")
-        .to_string();
+        .to_string());
     Ok(InstallConfig { language, install_path })
 }
 
@@ -142,6 +173,183 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 static IS_CONVERTING: AtomicBool = AtomicBool::new(false);
 static CANCEL_FLAG: AtomicBool = AtomicBool::new(false);
 static CURRENT_CHILD_ID: AtomicU32 = AtomicU32::new(0);
+static COMFY_CHILD_ID: AtomicU32 = AtomicU32::new(0);
+
+#[derive(serde::Serialize)]
+struct ComfyProcessInfo {
+    running: bool,
+    pid: u32,
+}
+
+fn validate_comfy_url(raw_url: &str) -> Result<url::Url, String> {
+    let parsed = url::Url::parse(raw_url).map_err(|e| format!("无效的 ComfyUI 地址: {}", e))?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err("ComfyUI 地址仅支持 http 或 https".to_string());
+    }
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err("请不要在 ComfyUI 地址中携带账号或密码".to_string());
+    }
+    Ok(parsed)
+}
+
+fn comfy_client() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(8))
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn comfy_http_json(
+    method: String,
+    url: String,
+    body: Option<serde_json::Value>,
+    api_key: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let parsed = validate_comfy_url(&url)?;
+    let client = comfy_client()?;
+    let mut request = match method.to_uppercase().as_str() {
+        "GET" => client.get(parsed),
+        "POST" => client.post(parsed),
+        "DELETE" => client.delete(parsed),
+        _ => return Err("不支持的 ComfyUI 请求方法".to_string()),
+    };
+    if let Some(key) = api_key.filter(|key| !key.trim().is_empty()) {
+        request = request.bearer_auth(key.trim());
+    }
+    if let Some(payload) = body {
+        request = request.json(&payload);
+    }
+    let response = request.send().await.map_err(|e| format!("连接 ComfyUI 失败: {}", e))?;
+    let status = response.status();
+    let text = response.text().await.map_err(|e| e.to_string())?;
+    if !status.is_success() {
+        let detail: String = text.chars().take(600).collect();
+        return Err(format!("ComfyUI 返回 {}: {}", status.as_u16(), detail));
+    }
+    if text.trim().is_empty() {
+        return Ok(serde_json::json!({ "ok": true }));
+    }
+    serde_json::from_str(&text).map_err(|e| format!("ComfyUI 返回了无效 JSON: {}", e))
+}
+
+#[tauri::command]
+async fn comfy_download_output(
+    url: String,
+    output_path: String,
+    api_key: Option<String>,
+) -> Result<String, String> {
+    let parsed = validate_comfy_url(&url)?;
+    let target = std::path::PathBuf::from(&output_path);
+    is_path_safe(&target)?;
+    let client = comfy_client()?;
+    let mut request = client.get(parsed);
+    if let Some(key) = api_key.filter(|key| !key.trim().is_empty()) {
+        request = request.bearer_auth(key.trim());
+    }
+    let response = request.send().await.map_err(|e| format!("下载生成结果失败: {}", e))?;
+    if !response.status().is_success() {
+        return Err(format!("下载生成结果失败: HTTP {}", response.status().as_u16()));
+    }
+    let bytes = response.bytes().await.map_err(|e| e.to_string())?;
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&target, &bytes).map_err(|e| e.to_string())?;
+    Ok(target.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn start_comfy_local(comfy_path: String, python_path: String, port: u16) -> Result<ComfyProcessInfo, String> {
+    if !(1024..=65535).contains(&port) {
+        return Err("端口必须在 1024 到 65535 之间".to_string());
+    }
+    let existing_pid = COMFY_CHILD_ID.load(Ordering::SeqCst);
+    if existing_pid != 0 {
+        return Ok(ComfyProcessInfo { running: true, pid: existing_pid });
+    }
+
+    let comfy_dir = std::path::PathBuf::from(comfy_path.trim());
+    if !comfy_dir.is_dir() || !comfy_dir.join("main.py").is_file() {
+        return Err("请选择包含 main.py 的 ComfyUI 目录".to_string());
+    }
+
+    let executable = if !python_path.trim().is_empty() {
+        let custom = std::path::PathBuf::from(python_path.trim());
+        if !custom.is_file() {
+            return Err("指定的 Python 可执行文件不存在".to_string());
+        }
+        custom
+    } else {
+        let parent_embedded = comfy_dir.parent().map(|p| p.join("python_embeded").join("python.exe"));
+        let local_embedded = comfy_dir.join("python_embeded").join("python.exe");
+        if let Some(candidate) = parent_embedded.filter(|p| p.is_file()) {
+            candidate
+        } else if local_embedded.is_file() {
+            local_embedded
+        } else {
+            std::path::PathBuf::from("python")
+        }
+    };
+
+    let log_dir = dirs::data_local_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("KaruiToolbox")
+        .join("logs");
+    std::fs::create_dir_all(&log_dir).map_err(|e| e.to_string())?;
+    let stdout = std::fs::File::create(log_dir.join("comfyui.log")).map_err(|e| e.to_string())?;
+    let stderr = stdout.try_clone().map_err(|e| e.to_string())?;
+
+    let mut command = std::process::Command::new(executable);
+    command
+        .current_dir(&comfy_dir)
+        .arg("main.py")
+        .args(["--listen", "127.0.0.1", "--port", &port.to_string(), "--disable-auto-launch"])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::from(stdout))
+        .stderr(std::process::Stdio::from(stderr));
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    let child = command.spawn().map_err(|e| format!("启动 ComfyUI 失败: {}", e))?;
+    let pid = child.id();
+    COMFY_CHILD_ID.store(pid, Ordering::SeqCst);
+    Ok(ComfyProcessInfo { running: true, pid })
+}
+
+#[tauri::command]
+fn stop_comfy_local() -> Result<ComfyProcessInfo, String> {
+    let pid = COMFY_CHILD_ID.swap(0, Ordering::SeqCst);
+    if pid == 0 {
+        return Ok(ComfyProcessInfo { running: false, pid: 0 });
+    }
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        let status = std::process::Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .creation_flags(0x08000000)
+            .status()
+            .map_err(|e| e.to_string())?;
+        if !status.success() {
+            return Err("无法停止 ComfyUI 进程".to_string());
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = std::process::Command::new("kill").arg(pid.to_string()).status();
+    }
+    Ok(ComfyProcessInfo { running: false, pid: 0 })
+}
+
+#[tauri::command]
+fn comfy_process_status() -> ComfyProcessInfo {
+    let pid = COMFY_CHILD_ID.load(Ordering::SeqCst);
+    ComfyProcessInfo { running: pid != 0, pid }
+}
 
 fn get_ffmpeg_dir() -> Result<std::path::PathBuf, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
@@ -1368,7 +1576,7 @@ fn open_path(path: String) -> Result<(), String> {
 pub fn run() {
   tauri::Builder::default()
     .invoke_handler(tauri::generate_handler![
-      open_url, get_documents_dir, get_download_dir, get_install_lang, get_install_config,
+    open_url, get_documents_dir, get_download_dir, get_install_lang, get_install_config, set_storage_path,
       convert_audio_batch, cancel_convert, open_path, reveal_in_folder,
       read_file_bytes, write_file_bytes, write_file_chunk, exists_path, get_file_size,
       trim_audio, probe_video, extract_audio,
@@ -1376,6 +1584,8 @@ pub fn run() {
       convert_image_batch,
       compress_image_batch,
       convert_video_batch,
+      comfy_http_json, comfy_download_output,
+      start_comfy_local, stop_comfy_local, comfy_process_status,
       set_tray_lang,
     ])
     .plugin(tauri_plugin_dialog::init())
