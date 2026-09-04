@@ -169,11 +169,12 @@ fn get_install_config() -> Result<InstallConfig, String> {
 // ===== Audio Conversion =====
 
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::Mutex;
 
 static IS_CONVERTING: AtomicBool = AtomicBool::new(false);
 static CANCEL_FLAG: AtomicBool = AtomicBool::new(false);
 static CURRENT_CHILD_ID: AtomicU32 = AtomicU32::new(0);
-static COMFY_CHILD_ID: AtomicU32 = AtomicU32::new(0);
+static COMFY_CHILD: Mutex<Option<std::process::Child>> = Mutex::new(None);
 
 #[derive(serde::Serialize)]
 struct ComfyProcessInfo {
@@ -236,6 +237,7 @@ async fn comfy_http_json(
 
 #[tauri::command]
 async fn comfy_download_output(
+    app: tauri::AppHandle,
     url: String,
     output_path: String,
     api_key: Option<String>,
@@ -257,7 +259,90 @@ async fn comfy_download_output(
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     std::fs::write(&target, &bytes).map_err(|e| e.to_string())?;
+    app.asset_protocol_scope()
+        .allow_file(&target)
+        .map_err(|e| format!("无法授权预览生成结果: {}", e))?;
     Ok(target.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+async fn install_comfy_video_helper(comfy_path: String, python_path: String) -> Result<String, String> {
+    let comfy_dir = std::path::PathBuf::from(comfy_path.trim());
+    if !comfy_dir.is_dir() || !comfy_dir.join("main.py").is_file() {
+        return Err("请选择包含 main.py 的 ComfyUI 目录".to_string());
+    }
+
+    let custom_nodes = comfy_dir.join("custom_nodes");
+    let target = custom_nodes.join("ComfyUI-VideoHelperSuite");
+    let already_installed = target.join("__init__.py").is_file();
+    if target.exists() && !already_installed {
+        return Err(format!("安装目录已存在但不完整，请先删除后重试：{}", target.display()));
+    }
+
+    if !already_installed {
+        let response = reqwest::get("https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite/archive/refs/heads/main.zip")
+            .await
+            .map_err(|e| format!("下载 Video Helper Suite 失败: {}", e))?;
+        if !response.status().is_success() {
+            return Err(format!("下载 Video Helper Suite 失败: HTTP {}", response.status()));
+        }
+        let archive_bytes = response.bytes().await.map_err(|e| format!("读取下载内容失败: {}", e))?;
+        let reader = std::io::Cursor::new(archive_bytes);
+        let mut archive = zip::ZipArchive::new(reader).map_err(|e| format!("安装包格式无效: {}", e))?;
+        std::fs::create_dir_all(&target).map_err(|e| format!("无法创建节点目录: {}", e))?;
+
+        let extract_result = (|| -> Result<(), String> {
+            for index in 0..archive.len() {
+                let mut entry = archive.by_index(index).map_err(|e| e.to_string())?;
+                let enclosed = entry.enclosed_name().ok_or("安装包包含不安全路径")?;
+                let relative: std::path::PathBuf = enclosed.components().skip(1).collect();
+                if relative.as_os_str().is_empty() {
+                    continue;
+                }
+                let output = target.join(relative);
+                if entry.is_dir() {
+                    std::fs::create_dir_all(&output).map_err(|e| e.to_string())?;
+                } else {
+                    if let Some(parent) = output.parent() {
+                        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+                    }
+                    let mut file = std::fs::File::create(&output).map_err(|e| e.to_string())?;
+                    std::io::copy(&mut entry, &mut file).map_err(|e| e.to_string())?;
+                }
+            }
+            Ok(())
+        })();
+        if let Err(error) = extract_result {
+            let _ = std::fs::remove_dir_all(&target);
+            return Err(format!("解压 Video Helper Suite 失败: {}", error));
+        }
+    }
+
+    let executable = if !python_path.trim().is_empty() {
+        std::path::PathBuf::from(python_path.trim())
+    } else {
+        comfy_dir.parent()
+            .map(|parent| parent.join("python_embeded").join("python.exe"))
+            .filter(|path| path.is_file())
+            .unwrap_or_else(|| std::path::PathBuf::from("python"))
+    };
+    let requirements = target.join("requirements.txt");
+    if requirements.is_file() {
+        let mut command = std::process::Command::new(&executable);
+        command.args(["-m", "pip", "install", "-r"]).arg(&requirements);
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(0x08000000);
+        }
+        let output = command.output().map_err(|e| format!("无法启动 Python 安装依赖: {}", e))?;
+        if !output.status.success() {
+            let detail = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("节点已下载，但依赖安装失败: {}", detail.trim()));
+        }
+    }
+
+    Ok("Video Helper Suite 安装完成，请重启 ComfyUI".to_string())
 }
 
 #[tauri::command]
@@ -265,9 +350,18 @@ fn start_comfy_local(comfy_path: String, python_path: String, port: u16) -> Resu
     if !(1024..=65535).contains(&port) {
         return Err("端口必须在 1024 到 65535 之间".to_string());
     }
-    let existing_pid = COMFY_CHILD_ID.load(Ordering::SeqCst);
-    if existing_pid != 0 {
-        return Ok(ComfyProcessInfo { running: true, pid: existing_pid });
+    let mut managed_child = COMFY_CHILD.lock().map_err(|_| "无法读取 ComfyUI 进程状态".to_string())?;
+    if let Some(child) = managed_child.as_mut() {
+        match child.try_wait() {
+            Ok(None) => return Ok(ComfyProcessInfo { running: true, pid: child.id() }),
+            Ok(Some(_)) => *managed_child = None,
+            Err(error) => return Err(format!("无法检查 ComfyUI 进程状态: {}", error)),
+        }
+    }
+
+    let address = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+    if std::net::TcpStream::connect_timeout(&address, std::time::Duration::from_millis(400)).is_ok() {
+        return Ok(ComfyProcessInfo { running: true, pid: 0 });
     }
 
     let comfy_dir = std::path::PathBuf::from(comfy_path.trim());
@@ -316,16 +410,17 @@ fn start_comfy_local(comfy_path: String, python_path: String, port: u16) -> Resu
     }
     let child = command.spawn().map_err(|e| format!("启动 ComfyUI 失败: {}", e))?;
     let pid = child.id();
-    COMFY_CHILD_ID.store(pid, Ordering::SeqCst);
+    *managed_child = Some(child);
     Ok(ComfyProcessInfo { running: true, pid })
 }
 
 #[tauri::command]
 fn stop_comfy_local() -> Result<ComfyProcessInfo, String> {
-    let pid = COMFY_CHILD_ID.swap(0, Ordering::SeqCst);
-    if pid == 0 {
+    let mut managed_child = COMFY_CHILD.lock().map_err(|_| "无法读取 ComfyUI 进程状态".to_string())?;
+    let Some(mut child) = managed_child.take() else {
         return Ok(ComfyProcessInfo { running: false, pid: 0 });
-    }
+    };
+    let pid = child.id();
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
@@ -340,15 +435,27 @@ fn stop_comfy_local() -> Result<ComfyProcessInfo, String> {
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = std::process::Command::new("kill").arg(pid.to_string()).status();
+        child.kill().map_err(|e| e.to_string())?;
     }
+    let _ = child.wait();
     Ok(ComfyProcessInfo { running: false, pid: 0 })
 }
 
 #[tauri::command]
 fn comfy_process_status() -> ComfyProcessInfo {
-    let pid = COMFY_CHILD_ID.load(Ordering::SeqCst);
-    ComfyProcessInfo { running: pid != 0, pid }
+    let Ok(mut managed_child) = COMFY_CHILD.lock() else {
+        return ComfyProcessInfo { running: false, pid: 0 };
+    };
+    let Some(child) = managed_child.as_mut() else {
+        return ComfyProcessInfo { running: false, pid: 0 };
+    };
+    match child.try_wait() {
+        Ok(None) => ComfyProcessInfo { running: true, pid: child.id() },
+        _ => {
+            *managed_child = None;
+            ComfyProcessInfo { running: false, pid: 0 }
+        }
+    }
 }
 
 fn get_ffmpeg_dir() -> Result<std::path::PathBuf, String> {
@@ -1441,12 +1548,16 @@ fn is_path_safe(path: &std::path::Path) -> Result<(), String> {
             None
         }))
     };
+    let storage_dir = get_storage_override().map(std::path::PathBuf::from).map(|path| {
+        path.canonicalize().unwrap_or(path)
+    });
     let is_allowed = canonical.starts_with(&docs_c)
         || canonical.starts_with(&dl_c)
         || canonical.starts_with(&appdata_c)
         || canonical.starts_with(&temp_c)
         || exe_dir.as_ref().map_or(false, |d| canonical.starts_with(d))
-        || install_dir.as_ref().map_or(false, |d| canonical.starts_with(d));
+        || install_dir.as_ref().map_or(false, |d| canonical.starts_with(d))
+        || storage_dir.as_ref().map_or(false, |d| canonical.starts_with(d));
     if is_allowed {
         Ok(())
     } else {
@@ -1584,7 +1695,7 @@ pub fn run() {
       convert_image_batch,
       compress_image_batch,
       convert_video_batch,
-      comfy_http_json, comfy_download_output,
+    comfy_http_json, comfy_download_output, install_comfy_video_helper,
       start_comfy_local, stop_comfy_local, comfy_process_status,
       set_tray_lang,
     ])

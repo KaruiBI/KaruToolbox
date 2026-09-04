@@ -12113,6 +12113,107 @@
           -webkit-text-fill-color: var(--karui-muted) !important;
       }
       
+      #typingTestOverlay :is(.typing-test-settings,
+      .typing-test-area,
+      .typing-test-result) {
+          color: var(--karui-ink) !important;
+          background: rgba(255, 255, 255, 0.9) !important;
+          border-color: var(--karui-line) !important;
+          box-shadow: 0 14px 36px rgba(31, 76, 122, 0.08) !important;
+      }
+      
+      #typingTestOverlay .typing-test-option {
+          color: #526b82 !important;
+          -webkit-text-fill-color: #526b82 !important;
+          background: #f6fafc !important;
+          border-color: rgba(38, 143, 218, 0.18) !important;
+      }
+      
+      #typingTestOverlay .typing-test-option:hover {
+          color: var(--karui-blue) !important;
+          -webkit-text-fill-color: var(--karui-blue) !important;
+          background: rgba(38, 143, 218, 0.09) !important;
+          border-color: rgba(38, 143, 218, 0.32) !important;
+      }
+      
+      #typingTestOverlay .typing-test-option.active {
+          color: #0f5f99 !important;
+          -webkit-text-fill-color: #0f5f99 !important;
+          background: #dff3fa !important;
+          border-color: #55b8d3 !important;
+          box-shadow: inset 0 0 0 1px rgba(15, 95, 153, 0.08) !important;
+      }
+      
+      #typingTestOverlay .typing-test-start-btn {
+          color: #fff !important;
+          -webkit-text-fill-color: #fff !important;
+          background: linear-gradient(135deg, var(--karui-blue), var(--karui-cyan)) !important;
+          box-shadow: 0 10px 24px rgba(38, 143, 218, 0.22) !important;
+      }
+      
+      #typingTestOverlay .typing-test-reset-btn {
+          color: var(--karui-ink) !important;
+          -webkit-text-fill-color: var(--karui-ink) !important;
+          background: #edf6fb !important;
+          border-color: rgba(38, 143, 218, 0.18) !important;
+      }
+      
+      #typingTestOverlay .typing-test-text-wrap {
+          background: #f1f7fa !important;
+          border: 1px solid rgba(38, 143, 218, 0.16);
+      }
+      
+      #typingTestOverlay .typing-test-text,
+      #typingTestOverlay .typing-test-hint {
+          color: #71869a !important;
+          -webkit-text-fill-color: #71869a !important;
+      }
+      
+      #typingTestOverlay .typing-test-char.current {
+          color: var(--karui-ink) !important;
+          -webkit-text-fill-color: var(--karui-ink) !important;
+          background: #dceef7 !important;
+          border-bottom-color: var(--karui-blue) !important;
+      }
+      
+      #typingTestOverlay .typing-test-char.correct {
+          color: #13795b !important;
+          -webkit-text-fill-color: #13795b !important;
+      }
+      
+      #typingTestOverlay :is(.typing-test-char.wrong,
+      .typing-test-char.extra,
+      .typing-test-stat-value.warning) {
+          color: #c13f50 !important;
+          -webkit-text-fill-color: #c13f50 !important;
+      }
+      
+      #typingTestOverlay .typing-test-result-item {
+          background: #f1f7fa !important;
+          border: 1px solid rgba(38, 143, 218, 0.12);
+      }
+      
+      #passwordGenOverlay :is(.password-gen-output,
+      .password-gen-length-value,
+      .password-gen-history-title) {
+          color: var(--karui-ink) !important;
+          -webkit-text-fill-color: var(--karui-ink) !important;
+      }
+      
+       :is(#tsCalcOverlay,
+      #mortgageCalcOverlay,
+      #interestCalcOverlay) :is(.ts-calc-current-value,
+      .mortgage-calc-schedule-row) {
+          color: var(--karui-ink) !important;
+          -webkit-text-fill-color: var(--karui-ink) !important;
+      }
+      
+      #colorExtractorOverlay .color-extractor-upload-text,
+      #audioExtractOverlay .pdf-merge-info-item {
+          color: var(--karui-ink) !important;
+          -webkit-text-fill-color: var(--karui-ink) !important;
+      }
+      
        :is(#bmiCalcOverlay,
       #tsCalcOverlay,
       #mortgageCalcOverlay,
@@ -12417,7 +12518,7 @@
           border: 1px solid rgba(38, 143, 218, 0.14);
           border-radius: 10px;
       }
-
+      
       .comfy-model-pathbar[hidden],
       .comfy-open-model-center[hidden],
       #comfyTutorialModelPath[hidden] {
@@ -12577,6 +12678,29 @@
           height: 14px;
       }
       
+      .comfy-model-card.installed {
+          border-color: rgba(22, 130, 101, 0.32);
+          box-shadow: inset 0 0 0 1px rgba(22, 130, 101, 0.06);
+      }
+      
+      .comfy-model-installed {
+          min-height: 36px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          color: #168265;
+          background: #edf9f5;
+          border: 1px solid rgba(22, 130, 101, 0.2);
+          border-radius: 8px;
+          font-size: 12px;
+          font-weight: 700;
+      }
+      
+      .comfy-model-installed[hidden],
+      .comfy-model-card>button[hidden] {
+          display: none;
+      }
+      
       .comfy-model-help {
           margin-top: 14px;
           padding: 10px 12px;
@@ -12618,8 +12742,9 @@
       }
       
       .comfy-tutorial-dialog {
-          width: min(760px, 100%);
-          max-height: min(760px, calc(100vh - 48px));
+          width: min(800px, calc(100vw - 48px));
+          height: min(760px, calc(100vh - 48px));
+          max-height: calc(100vh - 48px);
           display: flex;
           flex-direction: column;
           overflow: hidden;
@@ -12658,6 +12783,55 @@
       .comfy-tutorial-content {
           padding: 20px 24px;
           overflow-y: auto;
+      }
+      
+      .comfy-tutorial-tabs {
+          position: sticky;
+          top: -20px;
+          z-index: 2;
+          margin: -4px 0 16px;
+          padding: 5px;
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 5px;
+          background: #eaf4f9;
+          border: 1px solid var(--karui-line);
+          border-radius: 12px;
+      }
+      
+      .comfy-tutorial-tabs button {
+          min-height: 40px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          color: var(--karui-muted);
+          background: transparent;
+          border: 0;
+          border-radius: 8px;
+          font: inherit;
+          font-size: 12px;
+          font-weight: 700;
+          cursor: pointer;
+      }
+      
+      .comfy-tutorial-tabs button.active {
+          color: var(--karui-blue);
+          background: #fff;
+          box-shadow: 0 4px 12px rgba(31, 76, 122, 0.1);
+      }
+      
+      .comfy-tutorial-tabs svg {
+          width: 16px;
+          height: 16px;
+      }
+      
+      .comfy-tutorial-panel {
+          display: none;
+      }
+      
+      .comfy-tutorial-panel.active {
+          display: block;
       }
       
       .comfy-tutorial-steps {
@@ -12746,6 +12920,101 @@
           font-size: 10px;
       }
       
+      .comfy-video-model-folders {
+          margin-top: 12px;
+          display: grid;
+          gap: 8px;
+      }
+      
+      .comfy-video-model-folders>div {
+          min-width: 0;
+          padding: 9px 10px;
+          background: rgba(255, 255, 255, 0.72);
+          border: 1px solid rgba(38, 143, 218, 0.12);
+          border-radius: 8px;
+      }
+      
+      .comfy-video-model-folders strong,
+      .comfy-video-model-folders span {
+          display: block;
+      }
+      
+      .comfy-video-model-folders strong {
+          color: var(--karui-ink);
+          font-size: 11px;
+      }
+      
+      .comfy-video-model-folders span {
+          margin-top: 3px;
+          overflow-wrap: anywhere;
+          color: var(--karui-muted);
+          font-size: 10px;
+      }
+      
+      .comfy-video-model-folders button {
+          width: 100%;
+          min-height: 34px;
+          margin-top: 8px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 7px;
+          color: #fff;
+          background: var(--karui-blue);
+          border: 0;
+          border-radius: 7px;
+          font: inherit;
+          font-size: 11px;
+          font-weight: 700;
+          cursor: pointer;
+      }
+      
+      .comfy-video-model-folders button,
+      .comfy-video-model-folders button span,
+      .comfy-download-actions button,
+      .comfy-download-actions button span {
+          color: #fff !important;
+          -webkit-text-fill-color: #fff !important;
+      }
+      
+      .comfy-model-download-actions {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 7px;
+          margin-top: 8px;
+      }
+      
+      .comfy-model-download-actions button {
+          margin-top: 0;
+      }
+      
+      .comfy-video-model-folders button.secondary,
+      .comfy-video-model-folders button.secondary span,
+      .comfy-download-actions button.secondary,
+      .comfy-download-actions button.secondary span {
+          color: var(--karui-ink) !important;
+          -webkit-text-fill-color: var(--karui-ink) !important;
+          background: #fff !important;
+          border: 1px solid var(--karui-line) !important;
+      }
+      
+      .comfy-video-model-folders button:disabled,
+      .comfy-video-model-folders button:disabled span,
+      .comfy-download-actions button:disabled,
+      .comfy-download-actions button:disabled span {
+          color: #7d91a3 !important;
+          -webkit-text-fill-color: #7d91a3 !important;
+          background: #edf3f6 !important;
+          border-color: #d5e1e8 !important;
+          cursor: not-allowed;
+          opacity: 1;
+      }
+      
+      .comfy-video-model-folders button svg {
+          width: 14px;
+          height: 14px;
+      }
+      
       .comfy-download-actions {
           display: flex;
           flex-wrap: wrap;
@@ -12770,15 +13039,28 @@
           cursor: pointer;
       }
       
-      .comfy-download-actions button:last-child {
-          color: var(--karui-ink);
-          background: #fff;
-          border: 1px solid var(--karui-line);
-      }
-      
       .comfy-download-actions svg {
           width: 14px;
           height: 14px;
+      }
+      
+      .comfy-inline-install-status {
+          margin-top: 9px !important;
+          padding: 8px 10px;
+          color: #587086 !important;
+          background: #fff;
+          border: 1px solid var(--karui-line);
+          border-radius: 8px;
+      }
+      
+      .comfy-inline-install-status[data-state="success"] {
+          color: #168265 !important;
+          border-color: rgba(22, 130, 101, 0.22);
+      }
+      
+      .comfy-inline-install-status[data-state="error"] {
+          color: #b34d5c !important;
+          border-color: rgba(179, 77, 92, 0.22);
       }
       
       .comfy-package-choices {
@@ -13527,6 +13809,97 @@
           width: 18px;
       }
       
+      .comfy-video-status {
+          min-height: 44px;
+          margin-bottom: 15px;
+          padding: 10px 12px;
+          display: flex;
+          align-items: flex-start;
+          gap: 9px;
+          color: #587086;
+          background: #f3f8fb;
+          border: 1px solid var(--karui-line);
+          border-radius: 10px;
+          font-size: 11px;
+          line-height: 1.5;
+      }
+      
+      .comfy-video-status svg {
+          width: 17px;
+          height: 17px;
+          flex: 0 0 auto;
+      }
+      
+      .comfy-video-status span {
+          flex: 1;
+      }
+      
+      .comfy-video-status button {
+          display: none;
+          flex: 0 0 auto;
+          padding: 3px 7px;
+          color: inherit;
+          background: #fff;
+          border: 1px solid currentColor;
+          border-radius: 6px;
+          font: inherit;
+          font-weight: 700;
+          cursor: pointer;
+      }
+      
+      .comfy-video-status[data-state="ready"] {
+          color: #168265;
+          background: #edf9f5;
+          border-color: rgba(22, 130, 101, 0.2);
+      }
+      
+      .comfy-video-status[data-state="missing"] {
+          color: #b34d5c;
+          background: #fff3f4;
+          border-color: rgba(179, 77, 92, 0.2);
+      }
+      
+      .comfy-video-status[data-state="missing"] button {
+          display: block;
+      }
+      
+      .comfy-workflow-advanced {
+          margin: 2px 0 15px;
+          border-top: 1px solid var(--karui-line);
+      }
+      
+      .comfy-workflow-advanced summary {
+          min-height: 46px;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          color: var(--karui-muted);
+          font-size: 12px;
+          font-weight: 700;
+          cursor: pointer;
+          list-style: none;
+      }
+      
+      .comfy-workflow-advanced summary::-webkit-details-marker {
+          display: none;
+      }
+      
+      .comfy-workflow-advanced summary svg {
+          width: 16px;
+          height: 16px;
+      }
+      
+      .comfy-workflow-advanced-body {
+          padding-top: 4px;
+      }
+      
+      .comfy-workflow-advanced-body>p {
+          margin: 0 0 12px;
+          color: var(--karui-muted);
+          font-size: 11px;
+          line-height: 1.5;
+      }
+      
       #comfyWorkflowJson {
           font-family: "Cascadia Code", Consolas, monospace;
           font-size: 11px;
@@ -13700,6 +14073,19 @@
       }
       
       @media (max-width: 900px) {
+          .comfy-tutorial-overlay {
+              padding: 0;
+              background: #fafdff;
+              backdrop-filter: none;
+          }
+          .comfy-tutorial-dialog {
+              width: 100%;
+              height: 100%;
+              max-height: none;
+              border: 0;
+              border-radius: 0;
+              box-shadow: none;
+          }
           .comfy-studio-body {
               grid-template-columns: minmax(330px, 43%) 1fr;
               gap: 14px;
@@ -13711,13 +14097,23 @@
           }
       }
       
-      @media (max-width: 720px) {
+      @media (max-height: 780px) {
           .comfy-tutorial-overlay {
-              padding: 12px;
+              padding: 0;
+              background: #fafdff;
+              backdrop-filter: none;
           }
           .comfy-tutorial-dialog {
-              max-height: calc(100vh - 24px);
+              width: 100%;
+              height: 100%;
+              max-height: none;
+              border: 0;
+              border-radius: 0;
+              box-shadow: none;
           }
+      }
+      
+      @media (max-width: 720px) {
           .comfy-tutorial-steps {
               grid-template-columns: 1fr;
           }
@@ -14129,5 +14525,11 @@
           .auto-login-spider,
           .auth-submit-spider)::after {
               animation: none !important;
+          }
+      }
+      
+      @media (max-width: 760px) {
+          .comfy-model-download-actions {
+              grid-template-columns: 1fr;
           }
       }

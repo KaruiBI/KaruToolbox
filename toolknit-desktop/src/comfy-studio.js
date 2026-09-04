@@ -22,6 +22,7 @@ const elements = {
     testEngine: document.getElementById('comfyTestEngine'),
     saveEngine: document.getElementById('comfySaveEngine'),
     tutorialOverlay: document.getElementById('comfyTutorialOverlay'),
+    tutorialTabs: document.getElementById('comfyTutorialTabs'),
     openTutorial: document.getElementById('comfyOpenTutorial'),
     pageOpenTutorial: document.getElementById('aiCreativeOpenTutorial'),
     pageOpenSettings: document.getElementById('aiCreativeOpenSettings'),
@@ -29,7 +30,16 @@ const elements = {
     tutorialDone: document.getElementById('comfyTutorialDone'),
     tutorialSettings: document.getElementById('comfyTutorialSettings'),
     openModelCenter: document.getElementById('comfyOpenModelCenter'),
+    tutorialRootPath: document.getElementById('comfyTutorialRootPath'),
     tutorialModelPath: document.getElementById('comfyTutorialModelPath'),
+    tutorialCustomNodesPath: document.getElementById('comfyTutorialCustomNodesPath'),
+    tutorialDiffusionPath: document.getElementById('comfyTutorialDiffusionPath'),
+    tutorialClipPath: document.getElementById('comfyTutorialClipPath'),
+    tutorialVaePath: document.getElementById('comfyTutorialVaePath'),
+    installVideoHelper: document.getElementById('comfyInstallVideoHelper'),
+    videoInstallStatus: document.getElementById('comfyVideoInstallStatus'),
+    refreshVideoStatus: document.getElementById('comfyRefreshVideoStatus'),
+    tutorialServiceStatus: document.getElementById('comfyTutorialServiceStatus'),
     modelOverlay: document.getElementById('comfyModelOverlay'),
     modelClose: document.getElementById('comfyModelClose'),
     modelPathbar: document.getElementById('comfyModelPathbar'),
@@ -43,6 +53,20 @@ const elements = {
     studioTabs: document.getElementById('comfyStudioTabs'),
     imagePanel: document.getElementById('comfyImagePanel'),
     workflowPanel: document.getElementById('comfyWorkflowPanel'),
+    videoStatus: document.getElementById('comfyVideoStatus'),
+    videoInstallHelp: document.getElementById('comfyVideoInstallHelp'),
+    videoModel: document.getElementById('comfyVideoModel'),
+    videoClip: document.getElementById('comfyVideoClip'),
+    videoVae: document.getElementById('comfyVideoVae'),
+    videoPrompt: document.getElementById('comfyVideoPrompt'),
+    videoWidth: document.getElementById('comfyVideoWidth'),
+    videoHeight: document.getElementById('comfyVideoHeight'),
+    videoDuration: document.getElementById('comfyVideoDuration'),
+    videoFps: document.getElementById('comfyVideoFps'),
+    videoSteps: document.getElementById('comfyVideoSteps'),
+    videoCfg: document.getElementById('comfyVideoCfg'),
+    videoSeed: document.getElementById('comfyVideoSeed'),
+    workflowAdvanced: document.getElementById('comfyWorkflowAdvanced'),
     checkpoint: document.getElementById('comfyCheckpoint'),
     prompt: document.getElementById('comfyPrompt'),
     negativePrompt: document.getElementById('comfyNegativePrompt'),
@@ -72,6 +96,8 @@ let studioMode = 'image';
 let activePromptId = '';
 let runCancelled = false;
 let lastOutputDir = '';
+let videoEnvironment = null;
+let modelRefreshPromise = null;
 
 function loadConfig() {
     const fallback = {
@@ -254,6 +280,59 @@ function fillSelect (select, values, fallback) {
   if (items.includes(previous)) select.value = previous;
 }
 
+function updateModelCards (checkpoints) {
+  const installed = new Set(checkpoints.map((path) => String(path).split(/[\\/]/).pop().toLowerCase()));
+  document.querySelectorAll('.comfy-model-card[data-model-file]').forEach((card) => {
+    const isInstalled = installed.has(card.dataset.modelFile.toLowerCase());
+    card.classList.toggle('installed', isInstalled);
+    const badge = card.querySelector('.comfy-model-installed');
+    const download = card.querySelector('[data-comfy-download]');
+    if (badge) badge.hidden = !isInstalled;
+    if (download) download.hidden = isInstalled;
+  });
+}
+
+function nodeOptions (info, nodeName, inputName) {
+  return arrayOption(info?.[nodeName], inputName).filter((value) => typeof value === 'string');
+}
+
+function setVideoStatus (state, message) {
+  if (!elements.videoStatus) return;
+  elements.videoStatus.dataset.state = state;
+  const label = elements.videoStatus.querySelector('span');
+  if (label) label.textContent = message;
+}
+
+function detectVideoEnvironment (info) {
+  const requiredNodes = [
+    'UNETLoader', 'CLIPLoader', 'VAELoader', 'CLIPTextEncode',
+    'EmptyHunyuanLatentVideo', 'ModelSamplingSD3', 'KSampler', 'VAEDecode',
+  ];
+  const missingNodes = requiredNodes.filter((name) => !info?.[name]);
+  const videoOutputMode = info?.CreateVideo && info?.SaveVideo
+    ? 'native'
+    : (info?.VHS_VideoCombine ? 'vhs' : '');
+  const models = nodeOptions(info, 'UNETLoader', 'unet_name').filter((value) => /wan/i.test(value));
+  const clips = nodeOptions(info, 'CLIPLoader', 'clip_name').filter((value) => /wan|umt5/i.test(value));
+  const vaes = nodeOptions(info, 'VAELoader', 'vae_name').filter((value) => /wan/i.test(value));
+  fillSelect(elements.videoModel, models, [t('comfyStudio.videoNoModel')]);
+  fillSelect(elements.videoClip, clips, [t('comfyStudio.videoNoClip')]);
+  fillSelect(elements.videoVae, vaes, [t('comfyStudio.videoNoVae')]);
+
+  const missing = [...missingNodes];
+  if (!videoOutputMode) missing.push('CreateVideo + SaveVideo / VHS_VideoCombine');
+  if (!models.length) missing.push(t('comfyStudio.videoMissingModel'));
+  if (!clips.length) missing.push(t('comfyStudio.videoMissingClip'));
+  if (!vaes.length) missing.push(t('comfyStudio.videoMissingVae'));
+  const ready = missing.length === 0;
+  setVideoStatus(
+    ready ? 'ready' : 'missing',
+    ready ? t('comfyStudio.videoReady') : t('comfyStudio.videoMissing', { items: missing.join('、') }),
+  );
+  videoEnvironment = { ready, info, missing, videoOutputMode };
+  return videoEnvironment;
+}
+
 async function loadCapabilities () {
   const info = await requestWithFallback(['/object_info', '/api/object_info']);
   const checkpoints = arrayOption(info?.CheckpointLoaderSimple, 'ckpt_name');
@@ -263,7 +342,30 @@ async function loadCapabilities () {
   fillSelect(elements.sampler, samplers, ['euler']);
   fillSelect(elements.scheduler, schedulers, ['normal']);
   if (!checkpoints.length) elements.checkpoint.value = t('comfyStudio.noModel');
+  updateModelCards(checkpoints);
+  detectVideoEnvironment(info);
   return info;
+}
+
+async function refreshModelInventory () {
+  if (modelRefreshPromise) return modelRefreshPromise;
+  elements.refreshModels.disabled = true;
+  elements.modelStatus.textContent = t('comfyStudio.refreshingModels');
+  modelRefreshPromise = loadCapabilities()
+    .then((info) => {
+      const checkpoints = arrayOption(info?.CheckpointLoaderSimple, 'ckpt_name');
+      elements.modelStatus.textContent = t('comfyStudio.modelsFound', { count: checkpoints.length });
+      return info;
+    })
+    .catch((error) => {
+      elements.modelStatus.textContent = `${t('comfyStudio.connectionFailed')}: ${error.message || error}`;
+      return null;
+    })
+    .finally(() => {
+      elements.refreshModels.disabled = false;
+      modelRefreshPromise = null;
+    });
+  return modelRefreshPromise;
 }
 
 function openEngineSettings () {
@@ -282,8 +384,59 @@ function closeEngineSettings () {
   elements.engineOverlay.setAttribute('aria-hidden', 'true');
 }
 
-function openTutorial () {
+function setTutorialMode (mode) {
+  const selectedMode = mode === 'video' ? 'video' : 'image';
+  elements.tutorialTabs?.querySelectorAll('button').forEach((button) => {
+    button.classList.toggle('active', button.dataset.tutorialMode === selectedMode);
+  });
+  elements.tutorialOverlay?.querySelectorAll('[data-tutorial-panel]').forEach((panel) => {
+    panel.classList.toggle('active', panel.dataset.tutorialPanel === selectedMode);
+  });
+}
+
+function syncTutorialPaths () {
+  const config = loadConfig();
+  const root = config.mode === 'local' && config.localPath
+    ? config.localPath.replace(/[\\/]+$/, '')
+    : '';
+  const pathPending = t('comfyStudio.tutorialPathPending');
+  const paths = {
+    tutorialRootPath: root || pathPending,
+    tutorialCustomNodesPath: root ? `${root}\\custom_nodes` : pathPending,
+    tutorialDiffusionPath: root ? `${root}\\models\\diffusion_models` : pathPending,
+    tutorialClipPath: root ? `${root}\\models\\text_encoders` : pathPending,
+    tutorialVaePath: root ? `${root}\\models\\vae` : pathPending,
+  };
+  Object.entries(paths).forEach(([key, path]) => {
+    if (elements[key]) elements[key].textContent = path;
+  });
+  document.querySelectorAll('[data-comfy-folder]').forEach((button) => {
+    button.disabled = config.mode !== 'local' || !config.localPath;
+  });
+}
+
+function getTutorialFolderPath (folder) {
+  const config = loadConfig();
+  if (config.mode !== 'local' || !config.localPath) return '';
+  const root = config.localPath.replace(/[\\/]+$/, '');
+  const folders = {
+    root,
+    checkpoints: `${root}\\models\\checkpoints`,
+    customNodes: `${root}\\custom_nodes`,
+    diffusion: `${root}\\models\\diffusion_models`,
+    clip: `${root}\\models\\text_encoders`,
+    vae: `${root}\\models\\vae`,
+  };
+  return folders[folder] || '';
+}
+
+function openTutorial (requestedMode) {
   syncModelAccess();
+  syncTutorialPaths();
+  const mode = typeof requestedMode === 'string'
+    ? requestedMode
+    : (studioMode === 'workflow' ? 'video' : 'image');
+  setTutorialMode(mode);
   elements.tutorialOverlay.classList.add('visible');
   elements.tutorialOverlay.setAttribute('aria-hidden', 'false');
 }
@@ -304,8 +457,8 @@ function syncModelAccess (config = loadConfig()) {
     ? `${config.localPath.replace(/[\\/]+$/, '')}\\models\\checkpoints`
     : '';
   if (elements.tutorialModelPath) {
-    elements.tutorialModelPath.textContent = checkpointPath;
-    elements.tutorialModelPath.hidden = !checkpointPath;
+    elements.tutorialModelPath.textContent = checkpointPath || t('comfyStudio.tutorialPathPending');
+    elements.tutorialModelPath.hidden = false;
   }
   if (elements.openModelCenter) elements.openModelCenter.hidden = !checkpointPath;
   if (elements.modelPathbar) elements.modelPathbar.hidden = !checkpointPath;
@@ -319,6 +472,7 @@ function openModelCenter () {
   if (!checkpointPath) return;
   elements.modelOverlay.classList.add('visible');
   elements.modelOverlay.setAttribute('aria-hidden', 'false');
+  refreshModelInventory();
 }
 
 function closeModelCenter () {
@@ -448,6 +602,81 @@ function buildImageWorkflow () {
     '8': { class_type: 'VAEDecode', inputs: { samples: ['3', 0], vae: ['4', 2] } },
     '9': { class_type: 'SaveImage', inputs: { filename_prefix: 'Karui', images: ['8', 0] } },
   };
+}
+
+function optionalNodeInput (info, nodeName, inputName, value) {
+  const inputs = info?.[nodeName]?.input;
+  return inputs?.required?.[inputName] || inputs?.optional?.[inputName] ? { [inputName]: value } : {};
+}
+
+function preferredOption (info, nodeName, inputName, preferred, fallback) {
+  const options = nodeOptions(info, nodeName, inputName);
+  return options.find((value) => preferred.test(value)) || options[0] || fallback;
+}
+
+function buildWanVideoWorkflow () {
+  if (!videoEnvironment?.ready) {
+    throw new Error(t('comfyStudio.videoMissing', { items: videoEnvironment?.missing?.join('、') || t('comfyStudio.videoNotChecked') }));
+  }
+  const prompt = elements.videoPrompt.value.trim();
+  if (!prompt) throw new Error(t('comfyStudio.noPrompt'));
+  const info = videoEnvironment.info;
+  const seedValue = Number(elements.videoSeed.value);
+  const seed = Number.isFinite(seedValue) && seedValue >= 0
+    ? Math.floor(seedValue)
+    : Math.floor(Math.random() * 0x7fffffff);
+  const sampler = preferredOption(info, 'KSampler', 'sampler_name', /^euler$/, 'euler');
+  const scheduler = preferredOption(info, 'KSampler', 'scheduler', /simple|normal/, 'normal');
+  const fps = positiveInteger(elements.videoFps, 16, 1, 60);
+  const duration = positiveInteger(elements.videoDuration, 5, 1, 60);
+  const videoFrames = Math.max(17, Math.round((duration * fps - 1) / 4) * 4 + 1);
+
+  const workflow = {
+    '1': { class_type: 'UNETLoader', inputs: {
+      unet_name: elements.videoModel.value,
+      ...optionalNodeInput(info, 'UNETLoader', 'weight_dtype', 'default'),
+    } },
+    '2': { class_type: 'CLIPLoader', inputs: {
+      clip_name: elements.videoClip.value,
+      ...optionalNodeInput(info, 'CLIPLoader', 'type', preferredOption(info, 'CLIPLoader', 'type', /^wan$/i, 'wan')),
+      ...optionalNodeInput(info, 'CLIPLoader', 'device', 'default'),
+    } },
+    '3': { class_type: 'VAELoader', inputs: { vae_name: elements.videoVae.value } },
+    '4': { class_type: 'CLIPTextEncode', inputs: { text: prompt, clip: ['2', 0] } },
+    '5': { class_type: 'CLIPTextEncode', inputs: {
+      text: 'low quality, blurry, distorted, static, watermark, text', clip: ['2', 0],
+    } },
+    '6': { class_type: 'EmptyHunyuanLatentVideo', inputs: {
+      width: positiveInteger(elements.videoWidth, 832, 256, 1920),
+      height: positiveInteger(elements.videoHeight, 480, 256, 1920),
+      length: videoFrames,
+      batch_size: 1,
+    } },
+    '7': { class_type: 'ModelSamplingSD3', inputs: { model: ['1', 0], shift: 8 } },
+    '8': { class_type: 'KSampler', inputs: {
+      seed,
+      steps: positiveInteger(elements.videoSteps, 20, 1, 100),
+      cfg: Math.max(0, Math.min(30, Number(elements.videoCfg.value) || 6)),
+      sampler_name: sampler,
+      scheduler,
+      denoise: 1,
+      model: ['7', 0], positive: ['4', 0], negative: ['5', 0], latent_image: ['6', 0],
+    } },
+    '9': { class_type: 'VAEDecode', inputs: { samples: ['8', 0], vae: ['3', 0] } },
+  };
+  if (videoEnvironment.videoOutputMode === 'native') {
+    workflow['10'] = { class_type: 'CreateVideo', inputs: { images: ['9', 0], fps } };
+    workflow['11'] = { class_type: 'SaveVideo', inputs: {
+      video: ['10', 0], filename_prefix: 'KaruiVideo', format: 'auto',
+    } };
+  } else {
+    const format = preferredOption(info, 'VHS_VideoCombine', 'format', /h264.*mp4|video\/h264/i, 'video/h264-mp4');
+    workflow['10'] = { class_type: 'VHS_VideoCombine', inputs: {
+      images: ['9', 0], frame_rate: fps, loop_count: 0,
+      filename_prefix: 'KaruiVideo', format, pingpong: false, save_output: true,
+    } };
+  }
+  return workflow;
 }
 
 function parseWorkflow () {
@@ -593,7 +822,12 @@ async function runWorkflow () {
   try {
     engineConfig = loadConfig();
     await testConnection({ updateCard: false });
-    const workflow = studioMode === 'image' ? buildImageWorkflow() : parseWorkflow();
+    const useAdvancedWorkflow = studioMode === 'workflow'
+      && elements.workflowAdvanced?.open
+      && elements.workflowJson.value.trim();
+    const workflow = studioMode === 'image'
+      ? buildImageWorkflow()
+      : (useAdvancedWorkflow ? parseWorkflow() : buildWanVideoWorkflow());
     const queued = await queueWorkflow(workflow);
     activePromptId = queued?.prompt_id || queued?.promptId;
     if (!activePromptId) throw new Error('ComfyUI did not return a prompt_id');
@@ -631,6 +865,64 @@ async function importWorkflowFile (file) {
   const text = await file.text();
   JSON.parse(text);
   elements.workflowJson.value = text;
+  elements.workflowAdvanced.open = true;
+}
+
+async function installVideoHelper () {
+  const config = loadConfig();
+  if (!isTauri || config.mode !== 'local' || !config.localPath) {
+    throw new Error(t('comfyStudio.videoInstallLocalOnly'));
+  }
+  elements.installVideoHelper.disabled = true;
+  elements.videoInstallStatus.hidden = false;
+  elements.videoInstallStatus.dataset.state = 'working';
+  elements.videoInstallStatus.textContent = t('comfyStudio.videoInstalling');
+  try {
+    const message = await tauriInvoke('install_comfy_video_helper', {
+      comfyPath: config.localPath,
+      pythonPath: config.pythonPath || '',
+    });
+    const processStatus = await tauriInvoke('comfy_process_status');
+    if (processStatus?.running) {
+      elements.videoInstallStatus.textContent = t('comfyStudio.videoRestarting');
+      await stopLocalEngine();
+      await startLocalEngine(true);
+      await loadCapabilities();
+      elements.videoInstallStatus.dataset.state = videoEnvironment?.ready ? 'success' : 'error';
+      elements.videoInstallStatus.textContent = videoEnvironment?.ready
+        ? t('comfyStudio.videoInstallReady')
+        : t('comfyStudio.videoInstallRestartedMissing', { items: videoEnvironment?.missing?.join('、') || 'VHS_VideoCombine' });
+    } else {
+      elements.videoInstallStatus.dataset.state = 'success';
+      elements.videoInstallStatus.textContent = message || t('comfyStudio.videoInstallComplete');
+    }
+  } catch (error) {
+    elements.videoInstallStatus.dataset.state = 'error';
+    elements.videoInstallStatus.textContent = error.message || String(error);
+  } finally {
+    elements.installVideoHelper.disabled = false;
+  }
+}
+
+async function refreshVideoServiceStatus () {
+  elements.refreshVideoStatus.disabled = true;
+  elements.tutorialServiceStatus.hidden = false;
+  elements.tutorialServiceStatus.dataset.state = 'working';
+  elements.tutorialServiceStatus.textContent = t('comfyStudio.refreshingServiceStatus');
+  try {
+    await testConnection({ updateCard: false });
+    await loadCapabilities();
+    const ready = videoEnvironment?.ready;
+    elements.tutorialServiceStatus.dataset.state = ready ? 'success' : 'error';
+    elements.tutorialServiceStatus.textContent = ready
+      ? t('comfyStudio.videoServiceReady')
+      : t('comfyStudio.videoServiceMissing', { items: videoEnvironment?.missing?.join('、') || '' });
+  } catch (error) {
+    elements.tutorialServiceStatus.dataset.state = 'error';
+    elements.tutorialServiceStatus.textContent = `${t('comfyStudio.connectionFailed')}: ${error.message || error}`;
+  } finally {
+    elements.refreshVideoStatus.disabled = false;
+  }
 }
 
 elements.openEngineSettings?.addEventListener('click', openEngineSettings);
@@ -643,6 +935,9 @@ elements.pageOpenSettings?.addEventListener('click', (event) => {
 elements.engineBack?.addEventListener('click', closeEngineSettings);
 elements.openTutorial?.addEventListener('click', openTutorial);
 elements.pageOpenTutorial?.addEventListener('click', openTutorial);
+elements.videoInstallHelp?.addEventListener('click', () => openTutorial('video'));
+elements.installVideoHelper?.addEventListener('click', installVideoHelper);
+elements.refreshVideoStatus?.addEventListener('click', refreshVideoServiceStatus);
 elements.openModelCenter?.addEventListener('click', openModelCenter);
 elements.modelClose?.addEventListener('click', closeModelCenter);
 elements.modelOverlay?.addEventListener('click', (event) => {
@@ -652,18 +947,9 @@ elements.openModelFolder?.addEventListener('click', async () => {
   const checkpointPath = getCheckpointPath();
   if (checkpointPath) await tauriInvoke('open_path', { path: checkpointPath });
 });
-elements.refreshModels?.addEventListener('click', async () => {
-  elements.refreshModels.disabled = true;
-  elements.modelStatus.textContent = t('comfyStudio.refreshingModels');
-  try {
-    const info = await loadCapabilities();
-    const checkpoints = arrayOption(info && info.CheckpointLoaderSimple, 'ckpt_name');
-    elements.modelStatus.textContent = t('comfyStudio.modelsFound', { count: checkpoints.length });
-  } catch (error) {
-    elements.modelStatus.textContent = `${t('comfyStudio.connectionFailed')}: ${error.message || error}`;
-  } finally {
-    elements.refreshModels.disabled = false;
-  }
+elements.refreshModels?.addEventListener('click', refreshModelInventory);
+window.addEventListener('focus', () => {
+  if (elements.modelOverlay?.classList.contains('visible')) refreshModelInventory();
 });
 document.querySelectorAll('[data-comfy-download]').forEach((button) => {
   button.addEventListener('click', () => {
@@ -672,8 +958,18 @@ document.querySelectorAll('[data-comfy-download]').forEach((button) => {
     });
   });
 });
+document.querySelectorAll('[data-comfy-folder]').forEach((button) => {
+  button.addEventListener('click', async () => {
+    const path = getTutorialFolderPath(button.dataset.comfyFolder);
+    if (path) await tauriInvoke('open_path', { path });
+  });
+});
 elements.tutorialClose?.addEventListener('click', closeTutorial);
 elements.tutorialDone?.addEventListener('click', closeTutorial);
+elements.tutorialTabs?.addEventListener('click', (event) => {
+  const button = event.target.closest('button[data-tutorial-mode]');
+  if (button) setTutorialMode(button.dataset.tutorialMode);
+});
 elements.tutorialSettings?.addEventListener('click', () => {
   closeTutorial();
   openEngineSettings();

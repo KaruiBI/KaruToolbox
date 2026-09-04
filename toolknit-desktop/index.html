@@ -4583,91 +4583,206 @@
         </button>
             </header>
             <div class="comfy-tutorial-content">
-                <ol class="comfy-tutorial-steps">
-                    <li class="comfy-tutorial-download-step">
-                        <div class="comfy-tutorial-step-icon"><i data-lucide="download"></i></div>
-                        <div>
-                            <h3 data-i18n="comfyStudio.tutorialInstallTitle">下载本地生成引擎</h3>
-                            <p data-i18n="comfyStudio.tutorialInstallDesc">打开官方 GitHub Releases，在 Assets 中按显卡类型下载对应的 Windows Portable 压缩包。</p>
-                            <div class="comfy-download-actions">
-                                <button type="button" data-comfy-download="https://github.com/comfyanonymous/ComfyUI/releases">
+                <div class="comfy-tutorial-tabs" id="comfyTutorialTabs">
+                    <button class="active" type="button" data-tutorial-mode="image"><i data-lucide="image"></i><span data-i18n="comfyStudio.imageTutorialTab">图片教程</span></button>
+                    <button type="button" data-tutorial-mode="video"><i data-lucide="film"></i><span data-i18n="comfyStudio.videoTutorialTab">视频教程</span></button>
+                </div>
+                <div class="comfy-tutorial-panel active" data-tutorial-panel="image">
+                    <ol class="comfy-tutorial-steps">
+                        <li class="comfy-tutorial-download-step">
+                            <div class="comfy-tutorial-step-icon"><i data-lucide="download"></i></div>
+                            <div>
+                                <h3 data-i18n="comfyStudio.tutorialInstallTitle">下载本地生成引擎</h3>
+                                <p data-i18n="comfyStudio.tutorialInstallDesc">打开官方 GitHub Releases，在 Assets 中按显卡类型下载对应的 Windows Portable 压缩包。</p>
+                                <div class="comfy-download-actions">
+                                    <button type="button" data-comfy-download="https://github.com/comfyanonymous/ComfyUI/releases">
                                     <i data-lucide="github"></i><span data-i18n="comfyStudio.portableDownload">打开便携版下载列表</span>
                                 </button>
-                                <button type="button" data-comfy-download="https://www.7-zip.org/download.html">
+                                    <button type="button" class="secondary" disabled title="百度网盘地址待提供">
+                                    <i data-lucide="cloud"></i><span data-i18n="comfyStudio.baiduDownloadPending">百度网盘（待提供）</span>
+                                </button>
+                                    <button type="button" data-comfy-download="https://www.7-zip.org/download.html">
                                     <i data-lucide="archive"></i><span data-i18n="comfyStudio.download7Zip">下载 7-Zip 解压工具</span>
                                 </button>
-                            </div>
-                            <div class="comfy-package-choices">
-                                <div><strong>NVIDIA</strong><code>ComfyUI_windows_portable_nvidia.7z</code><span data-i18n="comfyStudio.nvidiaPackageHint">RTX / GTX 显卡优先选择</span></div>
-                                <div><strong>AMD</strong><code>ComfyUI_windows_portable_amd.7z</code><span data-i18n="comfyStudio.amdPackageHint">Radeon 显卡选择</span></div>
-                                <div><strong>Intel</strong><code>ComfyUI_windows_portable_intel.7z</code><span data-i18n="comfyStudio.intelPackageHint">Arc / Intel 核显选择</span></div>
-                            </div>
-                            <div class="comfy-download-tip">
-                                <i data-lucide="info"></i><span data-i18n="comfyStudio.downloadGuideStep2">下载后使用 7-Zip 完整解压到空间充足的磁盘，不要在压缩包内直接运行。</span>
-                            </div>
-                            <div class="comfy-desktop-route">
-                                <div class="comfy-desktop-route-copy">
-                                    <div class="comfy-desktop-route-title">
-                                        <i data-lucide="monitor-down"></i>
-                                        <strong data-i18n="comfyStudio.desktopInstallTitle">也可以使用 ComfyUI Desktop 安装版</strong>
-                                        <span data-i18n="comfyStudio.desktopInstallBadge">无需选择目录</span>
-                                    </div>
-                                    <p data-i18n="comfyStudio.desktopInstallDesc">下载安装并启动 ComfyUI Desktop，然后让 Karui 连接它正在运行的本地服务。</p>
-                                    <div class="comfy-desktop-steps">
-                                        <span data-i18n="comfyStudio.desktopInstallStep1">1. 安装并打开 ComfyUI Desktop，等待工作台加载完成。</span>
-                                        <span data-i18n="comfyStudio.desktopInstallStep2">2. 在 Karui 设置中选择“远程引擎”。</span>
-                                        <span data-i18n="comfyStudio.desktopInstallStep3">3. 服务地址保持 http://127.0.0.1:8188，点击“测试连接”并保存。</span>
-                                    </div>
                                 </div>
-                                <button class="comfy-desktop-download" type="button" data-comfy-download="https://www.comfy.org/download">
+                                <div class="comfy-package-choices">
+                                    <div><strong>NVIDIA</strong><code>ComfyUI_windows_portable_nvidia.7z</code><span data-i18n="comfyStudio.nvidiaPackageHint">RTX / GTX 显卡优先选择</span></div>
+                                    <div><strong>AMD</strong><code>ComfyUI_windows_portable_amd.7z</code><span data-i18n="comfyStudio.amdPackageHint">Radeon 显卡选择</span></div>
+                                    <div><strong>Intel</strong><code>ComfyUI_windows_portable_intel.7z</code><span data-i18n="comfyStudio.intelPackageHint">Arc / Intel 核显选择</span></div>
+                                </div>
+                                <div class="comfy-download-tip">
+                                    <i data-lucide="info"></i><span data-i18n="comfyStudio.downloadGuideStep2">下载后使用 7-Zip 完整解压到空间充足的磁盘，不要在压缩包内直接运行。</span>
+                                </div>
+                                <div class="comfy-desktop-route">
+                                    <div class="comfy-desktop-route-copy">
+                                        <div class="comfy-desktop-route-title">
+                                            <i data-lucide="monitor-down"></i>
+                                            <strong data-i18n="comfyStudio.desktopInstallTitle">也可以使用 ComfyUI Desktop 安装版</strong>
+                                            <span data-i18n="comfyStudio.desktopInstallBadge">无需选择目录</span>
+                                        </div>
+                                        <p data-i18n="comfyStudio.desktopInstallDesc">下载安装并启动 ComfyUI Desktop，然后让 Karui 连接它正在运行的本地服务。</p>
+                                        <div class="comfy-desktop-steps">
+                                            <span data-i18n="comfyStudio.desktopInstallStep1">1. 安装并打开 ComfyUI Desktop，等待工作台加载完成。</span>
+                                            <span data-i18n="comfyStudio.desktopInstallStep2">2. 在 Karui 设置中选择“远程引擎”。</span>
+                                            <span data-i18n="comfyStudio.desktopInstallStep3">3. 服务地址保持 http://127.0.0.1:8188，点击“测试连接”并保存。</span>
+                                        </div>
+                                    </div>
+                                    <button class="comfy-desktop-download" type="button" data-comfy-download="https://www.comfy.org/download">
                                     <i data-lucide="download"></i><span data-i18n="comfyStudio.desktopDownload">下载 Desktop 安装版</span>
                                 </button>
+                                </div>
                             </div>
-                        </div>
-                    </li>
-                    <li>
-                        <div class="comfy-tutorial-step-icon"><i data-lucide="folder-open"></i></div>
-                        <div>
-                            <h3 data-i18n="comfyStudio.tutorialFolderTitle">便携版：选择正确目录</h3>
-                            <p data-i18n="comfyStudio.tutorialFolderDesc">打开“设置”，选择本地引擎，再选择内部包含 main.py 的 ComfyUI 文件夹。</p>
-                            <code>D:\ComfyUI_windows_portable\ComfyUI</code>
-                        </div>
-                    </li>
-                    <li>
-                        <div class="comfy-tutorial-step-icon"><i data-lucide="box"></i></div>
-                        <div>
-                            <h3 data-i18n="comfyStudio.tutorialModelTitle">安装基础模型</h3>
-                            <p data-i18n="comfyStudio.tutorialModelDesc">把 .safetensors 或 .ckpt 模型文件放入 checkpoints 目录，然后重新启动引擎。</p>
-                            <code id="comfyTutorialModelPath" hidden></code>
-                            <button class="comfy-open-model-center" id="comfyOpenModelCenter" type="button" hidden>
-                                <i data-lucide="boxes"></i><span data-i18n="comfyStudio.openModelCenter">打开模型中心</span>
-                            </button>
-                        </div>
-                    </li>
-                    <li>
-                        <div class="comfy-tutorial-step-icon"><i data-lucide="plug-zap"></i></div>
-                        <div>
-                            <h3 data-i18n="comfyStudio.tutorialConnectTitle">启动并测试连接</h3>
-                            <p data-i18n="comfyStudio.tutorialConnectDesc">便携版选择目录后点击“保存并启动”；Desktop 安装版先启动 ComfyUI，再选择“远程引擎”并测试连接。
-                            </p>
-                        </div>
-                    </li>
-                    <li>
-                        <div class="comfy-tutorial-step-icon"><i data-lucide="image"></i></div>
-                        <div>
-                            <h3 data-i18n="comfyStudio.tutorialImageTitle">生成第一张图片</h3>
-                            <p data-i18n="comfyStudio.tutorialImageDesc">返回图片生成页，选择基础模型，输入提示词，然后点击“开始生成”。结果会自动保存到 Karui 输出目录。</p>
-                        </div>
-                    </li>
-                    <li>
-                        <div class="comfy-tutorial-step-icon"><i data-lucide="film"></i></div>
-                        <div>
-                            <h3 data-i18n="comfyStudio.tutorialVideoTitle">运行视频工作流</h3>
-                            <p data-i18n="comfyStudio.tutorialVideoDesc">先在 ComfyUI 中安装工作流所需模型和节点，导出 API 格式 JSON，再到“视频 / 工作流”页导入并运行。
-                            </p>
-                        </div>
-                    </li>
-                </ol>
+                        </li>
+                        <li>
+                            <div class="comfy-tutorial-step-icon"><i data-lucide="folder-open"></i></div>
+                            <div>
+                                <h3 data-i18n="comfyStudio.tutorialFolderTitle">便携版：选择正确目录</h3>
+                                <p data-i18n="comfyStudio.tutorialFolderDesc">打开“设置”，选择本地引擎，再选择内部包含 main.py 的 ComfyUI 文件夹。</p>
+                                <code id="comfyTutorialRootPath"></code>
+                                <div class="comfy-download-actions">
+                                    <button type="button" class="secondary" data-comfy-folder="root">
+                                        <i data-lucide="folder-open"></i><span data-i18n="comfyStudio.openComfyFolder">打开 ComfyUI 文件夹</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </li>
+                        <li>
+                            <div class="comfy-tutorial-step-icon"><i data-lucide="box"></i></div>
+                            <div>
+                                <h3 data-i18n="comfyStudio.tutorialModelTitle">安装基础模型</h3>
+                                <p data-i18n="comfyStudio.tutorialModelDesc">把 .safetensors 或 .ckpt 模型文件放入 checkpoints 目录，然后重新启动引擎。</p>
+                                <code id="comfyTutorialModelPath"></code>
+                                <div class="comfy-download-actions">
+                                    <button type="button" class="secondary" data-comfy-folder="checkpoints">
+                                        <i data-lucide="folder-open"></i><span data-i18n="comfyStudio.openModelFolder">打开模型文件夹</span>
+                                    </button>
+                                    <button type="button" class="secondary" disabled title="百度网盘地址待提供">
+                                        <i data-lucide="cloud"></i><span data-i18n="comfyStudio.baiduDownloadPending">百度网盘（待提供）</span>
+                                    </button>
+                                    <button class="comfy-open-model-center" id="comfyOpenModelCenter" type="button" hidden>
+                                        <i data-lucide="boxes"></i><span data-i18n="comfyStudio.openModelCenter">打开模型中心</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </li>
+                        <li>
+                            <div class="comfy-tutorial-step-icon"><i data-lucide="plug-zap"></i></div>
+                            <div>
+                                <h3 data-i18n="comfyStudio.tutorialConnectTitle">启动并测试连接</h3>
+                                <p data-i18n="comfyStudio.tutorialConnectDesc">便携版选择目录后点击“保存并启动”；Desktop 安装版先启动 ComfyUI，再选择“远程引擎”并测试连接。
+                                </p>
+                            </div>
+                        </li>
+                        <li>
+                            <div class="comfy-tutorial-step-icon"><i data-lucide="image"></i></div>
+                            <div>
+                                <h3 data-i18n="comfyStudio.tutorialImageTitle">生成第一张图片</h3>
+                                <p data-i18n="comfyStudio.tutorialImageDesc">返回图片生成页，选择基础模型，输入提示词，然后点击“开始生成”。结果会自动保存到 Karui 输出目录。</p>
+                            </div>
+                        </li>
+                    </ol>
+                </div>
+                <div class="comfy-tutorial-panel" data-tutorial-panel="video">
+                    <ol class="comfy-tutorial-steps comfy-video-tutorial-steps">
+                        <li>
+                            <div class="comfy-tutorial-step-icon"><i data-lucide="plug-zap"></i></div>
+                            <div>
+                                <h3 data-i18n="comfyStudio.videoTutorialEngineTitle">先连接 ComfyUI</h3>
+                                <p data-i18n="comfyStudio.videoTutorialEngineDesc">先按图片教程完成 ComfyUI 安装与连接。已显示“引擎已连接”可直接进行下一步。</p>
+                            </div>
+                        </li>
+                        <li>
+                            <div class="comfy-tutorial-step-icon"><i data-lucide="blocks"></i></div>
+                            <div>
+                                <h3 data-i18n="comfyStudio.videoTutorialNodeTitle">安装视频合成节点</h3>
+                                <p data-i18n="comfyStudio.videoTutorialNodeDesc">点击“一键安装”，Karui 会自动下载官方 Video Helper Suite、放入正确目录并安装依赖，不需要 Git 或 Manager。</p>
+                                <code id="comfyTutorialCustomNodesPath"></code>
+                                <div class="comfy-download-actions">
+                                    <button type="button" class="secondary" data-comfy-folder="customNodes">
+                                        <i data-lucide="folder-open"></i><span data-i18n="comfyStudio.openNodeFolder">打开节点文件夹</span>
+                                    </button>
+                                    <button type="button" class="secondary" disabled title="百度网盘地址待提供">
+                                        <i data-lucide="cloud"></i><span data-i18n="comfyStudio.baiduDownloadPending">百度网盘（待提供）</span>
+                                    </button>
+                                    <button type="button" id="comfyInstallVideoHelper">
+                                        <i data-lucide="package-plus"></i><span data-i18n="comfyStudio.installVideoHelper">一键安装视频节点</span>
+                                    </button>
+                                </div>
+                                <p class="comfy-inline-install-status" id="comfyVideoInstallStatus" hidden></p>
+                            </div>
+                        </li>
+                        <li class="comfy-tutorial-download-step">
+                            <div class="comfy-tutorial-step-icon"><i data-lucide="download"></i></div>
+                            <div>
+                                <h3 data-i18n="comfyStudio.videoTutorialModelsTitle">下载 Wan 2.1 文生视频模型</h3>
+                                <p data-i18n="comfyStudio.videoTutorialModelsDesc">推荐先用 1.3B 版本验证流程。下载扩散模型、UMT5 文本编码器和 Wan VAE 三个文件，并分别放入下方目录。</p>
+                                <div class="comfy-video-model-folders">
+                                    <div>
+                                        <strong data-i18n="comfyStudio.wanDiffusionLabel">扩散模型</strong>
+                                        <span>wan2.1_t2v_1.3B_fp16.safetensors · 2.84 GB</span>
+                                        <code id="comfyTutorialDiffusionPath"></code>
+                                        <div class="comfy-model-download-actions">
+                                            <button type="button" data-comfy-download="https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/diffusion_models/wan2.1_t2v_1.3B_fp16.safetensors?download=true">
+                                                <i data-lucide="download"></i><span data-i18n="comfyStudio.officialDownload">官方下载</span>
+                                            </button>
+                                            <button type="button" class="secondary" disabled title="百度网盘地址待提供">
+                                                <i data-lucide="cloud"></i><span data-i18n="comfyStudio.baiduDownloadPending">百度网盘（待提供）</span>
+                                            </button>
+                                            <button type="button" class="secondary" data-comfy-folder="diffusion">
+                                                <i data-lucide="folder-open"></i><span data-i18n="comfyStudio.openFolder">打开文件夹</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <strong data-i18n="comfyStudio.wanClipLabel">文本编码器</strong>
+                                        <span>umt5_xxl_fp8_e4m3fn_scaled.safetensors · 6.74 GB</span>
+                                        <code id="comfyTutorialClipPath"></code>
+                                        <div class="comfy-model-download-actions">
+                                            <button type="button" data-comfy-download="https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors?download=true">
+                                                <i data-lucide="download"></i><span data-i18n="comfyStudio.officialDownload">官方下载</span>
+                                            </button>
+                                            <button type="button" class="secondary" disabled title="百度网盘地址待提供">
+                                                <i data-lucide="cloud"></i><span data-i18n="comfyStudio.baiduDownloadPending">百度网盘（待提供）</span>
+                                            </button>
+                                            <button type="button" class="secondary" data-comfy-folder="clip">
+                                                <i data-lucide="folder-open"></i><span data-i18n="comfyStudio.openFolder">打开文件夹</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <strong data-i18n="comfyStudio.wanVaeLabel">视频 VAE</strong>
+                                        <span>wan_2.1_vae.safetensors</span>
+                                        <code id="comfyTutorialVaePath"></code>
+                                        <div class="comfy-model-download-actions">
+                                            <button type="button" data-comfy-download="https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors?download=true">
+                                                <i data-lucide="download"></i><span data-i18n="comfyStudio.officialDownload">官方下载</span>
+                                            </button>
+                                            <button type="button" class="secondary" disabled title="百度网盘地址待提供">
+                                                <i data-lucide="cloud"></i><span data-i18n="comfyStudio.baiduDownloadPending">百度网盘（待提供）</span>
+                                            </button>
+                                            <button type="button" class="secondary" data-comfy-folder="vae">
+                                                <i data-lucide="folder-open"></i><span data-i18n="comfyStudio.openFolder">打开文件夹</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </li>
+                        <li>
+                            <div class="comfy-tutorial-step-icon"><i data-lucide="refresh-cw"></i></div>
+                            <div>
+                                <h3 data-i18n="comfyStudio.videoTutorialRestartTitle">重启并自动检测</h3>
+                                <p data-i18n="comfyStudio.videoTutorialRestartDesc">关闭并重新启动 ComfyUI，再进入“视频 / 工作流”。状态显示环境已就绪后，输入提示词并点击“开始生成”。</p>
+                                <div class="comfy-download-actions">
+                                    <button type="button" id="comfyRefreshVideoStatus">
+                                        <i data-lucide="refresh-cw"></i><span data-i18n="comfyStudio.refreshServiceStatus">刷新服务状态</span>
+                                    </button>
+                                </div>
+                                <p class="comfy-inline-install-status" id="comfyTutorialServiceStatus" hidden></p>
+                            </div>
+                        </li>
+                    </ol>
+                </div>
                 <div class="comfy-tutorial-note"><i data-lucide="circle-alert"></i><span data-i18n="comfyStudio.tutorialNote">本地生成需要独立显卡和足够磁盘空间。视频模型通常需要更高显存。</span></div>
             </div>
             <footer class="comfy-tutorial-footer">
@@ -4685,7 +4800,7 @@
                 <div>
                     <span class="comfy-kicker">MODEL CENTER</span>
                     <h2 id="comfyModelTitle" data-i18n="comfyStudio.modelCenterTitle">基础模型中心</h2>
-                    <p data-i18n="comfyStudio.modelCenterLead">下载一个基础模型，放入 checkpoints 文件夹，然后刷新列表。</p>
+                    <p data-i18n="comfyStudio.modelCenterLead">模型中心会自动检测 checkpoints 文件夹中的模型。</p>
                 </div>
                 <button class="comfy-icon-btn" id="comfyModelClose" type="button" data-i18n-title="common.close" title="关闭">
                     <i data-lucide="x"></i>
@@ -4700,33 +4815,36 @@
                     <button id="comfyOpenModelFolder" type="button"><i data-lucide="folder-open"></i><span data-i18n="comfyStudio.openModelFolder">打开模型文件夹</span></button>
                 </div>
                 <div class="comfy-model-grid">
-                    <article class="comfy-model-card recommended">
+                    <article class="comfy-model-card recommended" data-model-file="sd_xl_base_1.0.safetensors">
                         <div class="comfy-model-card-top"><span data-i18n="comfyStudio.recommended">推荐入门</span><strong>SDXL Base 1.0</strong></div>
                         <p data-i18n="comfyStudio.sdxlDesc">画质与通用性均衡，适合 1024 × 1024 图片生成。</p>
                         <div class="comfy-model-meta"><span>6.9 GB</span><span data-i18n="comfyStudio.vram8Plus">建议 8 GB+ 显存</span></div>
                         <code>sd_xl_base_1.0.safetensors</code>
+                        <span class="comfy-model-installed" data-i18n="comfyStudio.modelInstalled" hidden>已检测到</span>
                         <button type="button" data-comfy-download="https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/blob/main/sd_xl_base_1.0.safetensors"><i data-lucide="external-link"></i><span data-i18n="comfyStudio.openOfficialModel">打开官方下载页</span></button>
                     </article>
-                    <article class="comfy-model-card">
+                    <article class="comfy-model-card" data-model-file="v1-5-pruned-emaonly.safetensors">
                         <div class="comfy-model-card-top"><span data-i18n="comfyStudio.lightweight">轻量</span><strong>Stable Diffusion 1.5</strong></div>
                         <p data-i18n="comfyStudio.sd15Desc">占用较低、生态成熟，适合先验证本地生成流程。</p>
                         <div class="comfy-model-meta"><span>4.3 GB</span><span data-i18n="comfyStudio.vram4Plus">建议 4 GB+ 显存</span></div>
                         <code>v1-5-pruned-emaonly.safetensors</code>
+                        <span class="comfy-model-installed" data-i18n="comfyStudio.modelInstalled" hidden>已检测到</span>
                         <button type="button" data-comfy-download="https://huggingface.co/runwayml/stable-diffusion-v1-5/blob/main/v1-5-pruned-emaonly.safetensors"><i data-lucide="external-link"></i><span data-i18n="comfyStudio.openOfficialModel">打开官方下载页</span></button>
                     </article>
-                    <article class="comfy-model-card">
+                    <article class="comfy-model-card" data-model-file="sd_xl_turbo_1.0_fp16.safetensors">
                         <div class="comfy-model-card-top"><span data-i18n="comfyStudio.fastModel">快速</span><strong>SDXL Turbo</strong></div>
                         <p data-i18n="comfyStudio.turboDesc">少步数快速出图，适合预览提示词和构图。</p>
                         <div class="comfy-model-meta"><span>6.9 GB</span><span data-i18n="comfyStudio.vram8Plus">建议 8 GB+ 显存</span></div>
                         <code>sd_xl_turbo_1.0_fp16.safetensors</code>
+                        <span class="comfy-model-installed" data-i18n="comfyStudio.modelInstalled" hidden>已检测到</span>
                         <button type="button" data-comfy-download="https://huggingface.co/stabilityai/sdxl-turbo/blob/main/sd_xl_turbo_1.0_fp16.safetensors"><i data-lucide="external-link"></i><span data-i18n="comfyStudio.openOfficialModel">打开官方下载页</span></button>
                     </article>
                 </div>
                 <div class="comfy-model-help"><i data-lucide="circle-alert"></i><span data-i18n="comfyStudio.modelLicenseHint">下载页面可能要求登录并同意模型许可。下载完成后请将整个 .safetensors 文件移入上述目录。</span></div>
             </div>
             <footer class="comfy-model-footer">
-                <span id="comfyModelStatus" data-i18n="comfyStudio.modelRefreshHint">放好模型后点击刷新</span>
-                <button class="comfy-btn primary" id="comfyRefreshModels" type="button"><i data-lucide="refresh-cw"></i><span data-i18n="comfyStudio.refreshModels">刷新模型列表</span></button>
+                <span id="comfyModelStatus" data-i18n="comfyStudio.modelAutoDetectHint">打开时自动检测模型</span>
+                <button class="comfy-btn primary" id="comfyRefreshModels" type="button"><i data-lucide="refresh-cw"></i><span data-i18n="comfyStudio.refreshModels">重新检测</span></button>
             </footer>
         </section>
     </div>
@@ -4806,18 +4924,57 @@
                 <div class="comfy-form-panel" id="comfyWorkflowPanel">
                     <div class="comfy-workflow-note">
                         <i data-lucide="clapperboard"></i>
-                        <div><strong data-i18n="comfyStudio.workflowHeading">运行图片或视频 API 工作流</strong>
-                            <p data-i18n="comfyStudio.workflowHelp">在 ComfyUI 中使用“导出（API）”生成 JSON，然后在这里导入。</p>
+                        <div><strong data-i18n="comfyStudio.videoSimpleHeading">一键生成视频</strong>
+                            <p data-i18n="comfyStudio.videoSimpleHelp">自动检测已安装的视频模型和节点，无需编辑工作流。</p>
                         </div>
                     </div>
-                    <input id="comfyWorkflowFile" type="file" accept=".json,application/json" hidden>
-                    <button class="comfy-workflow-upload" id="comfyImportWorkflow" type="button"><i
-              data-lucide="file-up"></i><span data-i18n="comfyStudio.importWorkflow">导入 API 工作流 JSON</span></button>
+
+                    <div class="comfy-video-status" id="comfyVideoStatus" data-state="checking">
+                        <i data-lucide="scan-search"></i>
+                        <span data-i18n="comfyStudio.videoChecking">正在检测视频生成环境…</span>
+                        <button id="comfyVideoInstallHelp" type="button" data-i18n="comfyStudio.viewInstallGuide">查看安装教程</button>
+                    </div>
                     <label class="comfy-field">
-            <span data-i18n="comfyStudio.workflowJson">工作流 JSON</span>
-            <textarea id="comfyWorkflowJson" rows="14" spellcheck="false"
-              data-i18n-placeholder="comfyStudio.workflowPlaceholder" placeholder="粘贴 ComfyUI API 工作流 JSON…"></textarea>
-          </label>
+                        <span data-i18n="comfyStudio.videoModel">视频模型</span>
+                        <select id="comfyVideoModel"><option value="" data-i18n="comfyStudio.videoDetectFirst">连接引擎后自动检测</option></select>
+                    </label>
+                    <label class="comfy-field">
+                        <span data-i18n="comfyStudio.videoTextEncoder">文本编码器</span>
+                        <select id="comfyVideoClip"><option value="" data-i18n="comfyStudio.videoDetectFirst">连接引擎后自动检测</option></select>
+                    </label>
+                    <label class="comfy-field">
+                        <span data-i18n="comfyStudio.videoVae">视频 VAE</span>
+                        <select id="comfyVideoVae"><option value="" data-i18n="comfyStudio.videoDetectFirst">连接引擎后自动检测</option></select>
+                    </label>
+                    <label class="comfy-field">
+                        <span data-i18n="comfyStudio.prompt">提示词</span>
+                        <textarea id="comfyVideoPrompt" rows="4" data-i18n-placeholder="comfyStudio.videoPromptPlaceholder"
+                            placeholder="描述视频中的主体、动作、镜头和氛围…"></textarea>
+                    </label>
+                    <div class="comfy-grid two">
+                        <label class="comfy-field"><span data-i18n="comfyStudio.width">宽度</span><input id="comfyVideoWidth" type="number" min="256" step="16" value="832"></label>
+                        <label class="comfy-field"><span data-i18n="comfyStudio.height">高度</span><input id="comfyVideoHeight" type="number" min="256" step="16" value="480"></label>
+                        <label class="comfy-field"><span data-i18n="comfyStudio.videoDuration">视频时长（秒）</span><input id="comfyVideoDuration" type="number" min="1" max="60" step="1" value="5"></label>
+                        <label class="comfy-field"><span data-i18n="comfyStudio.videoFps">帧率</span><input id="comfyVideoFps" type="number" min="1" max="60" value="16"></label>
+                        <label class="comfy-field"><span data-i18n="comfyStudio.steps">采样步数</span><input id="comfyVideoSteps" type="number" min="1" max="100" value="20"></label>
+                        <label class="comfy-field"><span>CFG</span><input id="comfyVideoCfg" type="number" min="0" max="30" step="0.5" value="6"></label>
+                    </div>
+                    <label class="comfy-field"><span data-i18n="comfyStudio.seed">随机种子（-1 为随机）</span><input id="comfyVideoSeed" type="number" value="-1"></label>
+
+                    <details class="comfy-workflow-advanced" id="comfyWorkflowAdvanced">
+                        <summary><i data-lucide="braces"></i><span data-i18n="comfyStudio.advancedWorkflow">高级：自定义 API 工作流</span></summary>
+                        <div class="comfy-workflow-advanced-body">
+                            <p data-i18n="comfyStudio.workflowHelp">在 ComfyUI 中使用“导出（API）”生成 JSON，然后在这里导入。</p>
+                            <input id="comfyWorkflowFile" type="file" accept=".json,application/json" hidden>
+                            <button class="comfy-workflow-upload" id="comfyImportWorkflow" type="button"><i
+                                data-lucide="file-up"></i><span data-i18n="comfyStudio.importWorkflow">导入 API 工作流 JSON</span></button>
+                            <label class="comfy-field">
+                                <span data-i18n="comfyStudio.workflowJson">工作流 JSON</span>
+                                <textarea id="comfyWorkflowJson" rows="10" spellcheck="false"
+                                    data-i18n-placeholder="comfyStudio.workflowPlaceholder" placeholder="粘贴 ComfyUI API 工作流 JSON…"></textarea>
+                            </label>
+                        </div>
+                    </details>
                 </div>
 
                 <div class="comfy-run-area">
