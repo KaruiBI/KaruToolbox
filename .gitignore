@@ -52,3 +52,9 @@ karui-toolbox-installer/
 
 # 打包后的安装程序(体积大,通过 GitHub Releases 分发)
 Karui-Toolbox-Setup.exe
+
+# AI assistant memory (local only)
+.codebuddy/
+
+# Cargo check artifacts
+target-check/
