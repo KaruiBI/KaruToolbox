@@ -4885,40 +4885,111 @@
                 </div>
 
                 <div class="comfy-form-panel active" id="comfyImagePanel">
-                    <label class="comfy-field">
+                    <div class="comfy-field" data-help-key="model">
             <span data-i18n="comfyStudio.model">基础模型</span>
             <select id="comfyCheckpoint">
               <option value="" data-i18n="comfyStudio.connectForModels">连接引擎后读取模型</option>
             </select>
-          </label>
-                    <label class="comfy-field">
+          </div>
+                    <div class="comfy-field" data-help-key="prompt">
             <span data-i18n="comfyStudio.prompt">提示词</span>
             <textarea id="comfyPrompt" rows="5" data-i18n-placeholder="comfyStudio.promptPlaceholder"
               placeholder="描述你想创作的画面…"></textarea>
-          </label>
-                    <label class="comfy-field">
+          </div>
+                    <section class="comfy-prompt-lab">
+                        <div class="comfy-lab-head">
+                            <span class="comfy-lab-title"><i data-lucide="wand-sparkles"></i><span
+                      data-i18n="comfyStudio.promptLab">提示词工作台</span></span>
+                            <div class="comfy-lab-actions">
+                                <span class="comfy-prompt-count" id="comfyPromptCount">0</span>
+                                <button class="comfy-chip-btn" id="comfyPromptInspire" type="button"
+                      data-i18n="comfyStudio.promptInspire">随机灵感</button>
+                                <button class="comfy-chip-btn" id="comfyPromptClear" type="button"
+                      data-i18n="comfyStudio.promptClear">清空</button>
+                                <button class="comfy-chip-btn accent" id="comfyPromptSave" type="button"
+                      data-i18n="comfyStudio.promptSave">收藏</button>
+                            </div>
+                        </div>
+                        <div class="comfy-lab-block">
+                            <span class="comfy-lab-label" data-i18n="comfyStudio.stylePreset">风格预设</span>
+                            <div class="comfy-chip-row" id="comfyImageStyles"></div>
+                        </div>
+                        <div class="comfy-lab-block">
+                            <span class="comfy-lab-label" data-i18n="comfyStudio.qualityTags">画质增强</span>
+                            <div class="comfy-chip-row" id="comfyImageQuality"></div>
+                        </div>
+                        <div class="comfy-lab-block">
+                            <span class="comfy-lab-label" data-i18n="comfyStudio.examplePrompts">示例提示词</span>
+                            <div class="comfy-example-list" id="comfyImageExamples"></div>
+                        </div>
+                        <div class="comfy-lab-block">
+                            <span class="comfy-lab-label" data-i18n="comfyStudio.promptTips">写作小贴士</span>
+                            <ul class="comfy-tip-list" id="comfyPromptTips"></ul>
+                        </div>
+                    </section>
+                    <div class="comfy-field" data-help-key="negativePrompt">
             <span data-i18n="comfyStudio.negativePrompt">反向提示词</span>
             <textarea id="comfyNegativePrompt" rows="3" data-i18n-placeholder="comfyStudio.negativePlaceholder"
               placeholder="不希望画面中出现的内容…"></textarea>
-          </label>
+          </div>
+                    <section class="comfy-prompt-lab compact">
+                        <div class="comfy-lab-block">
+                            <span class="comfy-lab-label" data-i18n="comfyStudio.negativePresets">常用反向词</span>
+                            <div class="comfy-chip-row" id="comfyImageNegatives"></div>
+                        </div>
+                    </section>
+                    <section class="comfy-preset-block">
+                        <span class="comfy-lab-label" data-i18n="comfyStudio.qualityPreset">出图档位</span>
+                        <div class="comfy-preset-row" id="comfyImagePreset"></div>
+                        <p class="comfy-param-preview" id="comfyImageParamPreview"></p>
+                    </section>
+                    <section class="comfy-preset-block">
+                        <span class="comfy-lab-label" data-i18n="comfyStudio.ratioPreset">画面比例</span>
+                        <div class="comfy-chip-row" id="comfyImageRatio"></div>
+                    </section>
                     <div class="comfy-grid two">
-                        <label class="comfy-field"><span data-i18n="comfyStudio.width">宽度</span><input id="comfyWidth" type="number"
-                min="64" step="64" value="1024"></label>
-                        <label class="comfy-field"><span data-i18n="comfyStudio.height">高度</span><input id="comfyHeight"
-                type="number" min="64" step="64" value="1024"></label>
-                        <label class="comfy-field"><span data-i18n="comfyStudio.steps">采样步数</span><input id="comfySteps"
-                type="number" min="1" max="150" value="24"></label>
-                        <label class="comfy-field"><span>CFG</span><input id="comfyCfg" type="number" min="0" max="30" step="0.5"
-                value="7"></label>
-                        <label class="comfy-field"><span data-i18n="comfyStudio.sampler">采样器</span><select id="comfySampler">
-                <option value="euler">euler</option>
-              </select></label>
-                        <label class="comfy-field"><span data-i18n="comfyStudio.scheduler">调度器</span><select id="comfyScheduler">
-                <option value="normal">normal</option>
-              </select></label>
+                        <label class="comfy-field" data-help-key="seed"><span data-i18n="comfyStudio.seed">随机种子（-1 为随机）</span><input
+                id="comfySeed" type="number" value="-1"></label>
+                        <label class="comfy-field" data-help-key="batch"><span data-i18n="comfyStudio.batchCount">生成数量</span><input
+                id="comfyBatch" type="number" min="1" max="8" step="1" value="1"></label>
                     </div>
-                    <label class="comfy-field"><span data-i18n="comfyStudio.seed">随机种子（-1 为随机）</span><input id="comfySeed"
-              type="number" value="-1"></label>
+                    <details class="comfy-advanced-params" id="comfyImageAdvanced">
+                        <summary><i data-lucide="sliders-horizontal"></i><span
+                data-i18n="comfyStudio.advancedParams">高级参数</span></summary>
+                        <div class="comfy-advanced-params-body">
+                            <div class="comfy-field" data-help-key="size">
+                                <span data-i18n="comfyStudio.size">画面尺寸</span>
+                                <div class="comfy-grid two">
+                                    <label class="comfy-sub-field"><span data-i18n="comfyStudio.width">宽度</span><input id="comfyWidth"
+                      type="number" min="64" step="64" value="1024"></label>
+                                    <label class="comfy-sub-field"><span data-i18n="comfyStudio.height">高度</span><input id="comfyHeight"
+                      type="number" min="64" step="64" value="1024"></label>
+                                </div>
+                            </div>
+                            <div class="comfy-grid two">
+                                <label class="comfy-field" data-help-key="steps"><span data-i18n="comfyStudio.steps">采样步数</span><input
+                    id="comfySteps" type="number" min="1" max="150" value="24"></label>
+                                <label class="comfy-field" data-help-key="cfg"><span data-i18n="comfyStudio.cfg">提示词强度 CFG</span><input
+                    id="comfyCfg" type="number" min="0" max="30" step="0.5" value="7"></label>
+                                <label class="comfy-field" data-help-key="sampler"><span data-i18n="comfyStudio.sampler">采样器</span><select
+                    id="comfySampler">
+                    <option value="euler">euler</option>
+                  </select></label>
+                                <label class="comfy-field" data-help-key="scheduler"><span
+                    data-i18n="comfyStudio.scheduler">调度器</span><select id="comfyScheduler">
+                    <option value="normal">normal</option>
+                  </select></label>
+                            </div>
+                        </div>
+                    </details>
+                    <details class="comfy-library" id="comfyPromptLibrary">
+                        <summary><i data-lucide="library"></i><span data-i18n="comfyStudio.promptLibrary">我的提示词库</span></summary>
+                        <div class="comfy-library-body">
+                            <div class="comfy-library-list" id="comfyLibraryList"></div>
+                            <p class="comfy-library-empty" id="comfyLibraryEmpty"
+                    data-i18n="comfyStudio.libraryEmpty">还没有收藏的提示词</p>
+                        </div>
+                    </details>
                 </div>
 
                 <div class="comfy-form-panel" id="comfyWorkflowPanel">
@@ -4934,32 +5005,103 @@
                         <span data-i18n="comfyStudio.videoChecking">正在检测视频生成环境…</span>
                         <button id="comfyVideoInstallHelp" type="button" data-i18n="comfyStudio.viewInstallGuide">查看安装教程</button>
                     </div>
-                    <label class="comfy-field">
-                        <span data-i18n="comfyStudio.videoModel">视频模型</span>
-                        <select id="comfyVideoModel"><option value="" data-i18n="comfyStudio.videoDetectFirst">连接引擎后自动检测</option></select>
-                    </label>
-                    <label class="comfy-field">
-                        <span data-i18n="comfyStudio.videoTextEncoder">文本编码器</span>
-                        <select id="comfyVideoClip"><option value="" data-i18n="comfyStudio.videoDetectFirst">连接引擎后自动检测</option></select>
-                    </label>
-                    <label class="comfy-field">
-                        <span data-i18n="comfyStudio.videoVae">视频 VAE</span>
-                        <select id="comfyVideoVae"><option value="" data-i18n="comfyStudio.videoDetectFirst">连接引擎后自动检测</option></select>
-                    </label>
-                    <label class="comfy-field">
+                    <details class="comfy-advanced-params" id="comfyVideoModels" open>
+                        <summary><i data-lucide="boxes"></i><span data-i18n="comfyStudio.videoModels">视频模型</span></summary>
+                        <div class="comfy-advanced-params-body">
+                            <label class="comfy-field" data-help-key="videoModel">
+                                <span data-i18n="comfyStudio.videoModel">扩散模型</span>
+                                <select id="comfyVideoModel"><option value="" data-i18n="comfyStudio.videoDetectFirst">连接引擎后自动检测</option></select>
+                            </label>
+                            <label class="comfy-field" data-help-key="videoClip">
+                                <span data-i18n="comfyStudio.videoTextEncoder">文本编码器</span>
+                                <select id="comfyVideoClip"><option value="" data-i18n="comfyStudio.videoDetectFirst">连接引擎后自动检测</option></select>
+                            </label>
+                            <label class="comfy-field" data-help-key="videoVae">
+                                <span data-i18n="comfyStudio.videoVae">视频 VAE</span>
+                                <select id="comfyVideoVae"><option value="" data-i18n="comfyStudio.videoDetectFirst">连接引擎后自动检测</option></select>
+                            </label>
+                        </div>
+                    </details>
+                    <div class="comfy-field" data-help-key="prompt">
                         <span data-i18n="comfyStudio.prompt">提示词</span>
                         <textarea id="comfyVideoPrompt" rows="4" data-i18n-placeholder="comfyStudio.videoPromptPlaceholder"
                             placeholder="描述视频中的主体、动作、镜头和氛围…"></textarea>
-                    </label>
-                    <div class="comfy-grid two">
-                        <label class="comfy-field"><span data-i18n="comfyStudio.width">宽度</span><input id="comfyVideoWidth" type="number" min="256" step="16" value="832"></label>
-                        <label class="comfy-field"><span data-i18n="comfyStudio.height">高度</span><input id="comfyVideoHeight" type="number" min="256" step="16" value="480"></label>
-                        <label class="comfy-field"><span data-i18n="comfyStudio.videoDuration">视频时长（秒）</span><input id="comfyVideoDuration" type="number" min="1" max="60" step="1" value="5"></label>
-                        <label class="comfy-field"><span data-i18n="comfyStudio.videoFps">帧率</span><input id="comfyVideoFps" type="number" min="1" max="60" value="16"></label>
-                        <label class="comfy-field"><span data-i18n="comfyStudio.steps">采样步数</span><input id="comfyVideoSteps" type="number" min="1" max="100" value="20"></label>
-                        <label class="comfy-field"><span>CFG</span><input id="comfyVideoCfg" type="number" min="0" max="30" step="0.5" value="6"></label>
                     </div>
-                    <label class="comfy-field"><span data-i18n="comfyStudio.seed">随机种子（-1 为随机）</span><input id="comfyVideoSeed" type="number" value="-1"></label>
+                    <section class="comfy-prompt-lab">
+                        <div class="comfy-lab-head">
+                            <span class="comfy-lab-title"><i data-lucide="clapperboard"></i><span
+                        data-i18n="comfyStudio.promptLab">提示词工作台</span></span>
+                            <div class="comfy-lab-actions">
+                                <span class="comfy-prompt-count" id="comfyVideoPromptCount">0</span>
+                                <button class="comfy-chip-btn" id="comfyVideoPromptInspire" type="button"
+                        data-i18n="comfyStudio.promptInspire">随机灵感</button>
+                                <button class="comfy-chip-btn" id="comfyVideoPromptClear" type="button"
+                        data-i18n="comfyStudio.promptClear">清空</button>
+                                <button class="comfy-chip-btn accent" id="comfyVideoPromptSave" type="button"
+                        data-i18n="comfyStudio.promptSave">收藏</button>
+                            </div>
+                        </div>
+                        <div class="comfy-lab-block">
+                            <span class="comfy-lab-label" data-i18n="comfyStudio.cameraTags">镜头语言</span>
+                            <div class="comfy-chip-row" id="comfyVideoCamera"></div>
+                        </div>
+                        <div class="comfy-lab-block">
+                            <span class="comfy-lab-label" data-i18n="comfyStudio.moodTags">氛围光影</span>
+                            <div class="comfy-chip-row" id="comfyVideoMood"></div>
+                        </div>
+                        <div class="comfy-lab-block">
+                            <span class="comfy-lab-label" data-i18n="comfyStudio.examplePrompts">示例提示词</span>
+                            <div class="comfy-example-list" id="comfyVideoExamples"></div>
+                        </div>
+                    </section>
+                    <div class="comfy-field" data-help-key="negativePrompt">
+                        <span data-i18n="comfyStudio.negativePrompt">反向提示词</span>
+                        <textarea id="comfyVideoNegative" rows="2" data-i18n-placeholder="comfyStudio.negativePlaceholder"
+                            placeholder="不希望画面中出现的内容…"></textarea>
+                    </div>
+                    <section class="comfy-prompt-lab compact">
+                        <div class="comfy-lab-block">
+                            <span class="comfy-lab-label" data-i18n="comfyStudio.negativePresets">常用反向词</span>
+                            <div class="comfy-chip-row" id="comfyVideoNegatives"></div>
+                        </div>
+                    </section>
+                    <section class="comfy-preset-block">
+                        <span class="comfy-lab-label" data-i18n="comfyStudio.qualityPreset">出片档位</span>
+                        <div class="comfy-preset-row" id="comfyVideoPreset"></div>
+                        <p class="comfy-param-preview" id="comfyVideoParamPreview"></p>
+                    </section>
+                    <section class="comfy-preset-block">
+                        <span class="comfy-lab-label" data-i18n="comfyStudio.ratioPreset">画面比例</span>
+                        <div class="comfy-chip-row" id="comfyVideoRatio"></div>
+                    </section>
+                    <details class="comfy-advanced-params" id="comfyVideoAdvanced">
+                        <summary><i data-lucide="sliders-horizontal"></i><span
+                data-i18n="comfyStudio.advancedParams">高级参数</span></summary>
+                        <div class="comfy-advanced-params-body">
+                            <div class="comfy-field" data-help-key="size">
+                                <span data-i18n="comfyStudio.size">画面尺寸</span>
+                                <div class="comfy-grid two">
+                                    <label class="comfy-sub-field"><span data-i18n="comfyStudio.width">宽度</span><input id="comfyVideoWidth"
+                      type="number" min="256" step="16" value="832"></label>
+                                    <label class="comfy-sub-field"><span data-i18n="comfyStudio.height">高度</span><input
+                      id="comfyVideoHeight" type="number" min="256" step="16" value="480"></label>
+                                </div>
+                            </div>
+                            <div class="comfy-grid two">
+                                <label class="comfy-field" data-help-key="duration"><span
+                    data-i18n="comfyStudio.videoDuration">视频时长（秒）</span><input id="comfyVideoDuration" type="number" min="1" max="60"
+                    step="1" value="5"></label>
+                                <label class="comfy-field" data-help-key="fps"><span data-i18n="comfyStudio.videoFps">帧率</span><input
+                    id="comfyVideoFps" type="number" min="1" max="60" value="16"></label>
+                                <label class="comfy-field" data-help-key="steps"><span data-i18n="comfyStudio.steps">采样步数</span><input
+                    id="comfyVideoSteps" type="number" min="1" max="100" value="20"></label>
+                                <label class="comfy-field" data-help-key="cfg"><span data-i18n="comfyStudio.cfg">提示词强度 CFG</span><input
+                    id="comfyVideoCfg" type="number" min="0" max="30" step="0.5" value="6"></label>
+                            </div>
+                            <label class="comfy-field" data-help-key="seed"><span data-i18n="comfyStudio.seed">随机种子（-1 为随机）</span><input
+                id="comfyVideoSeed" type="number" value="-1"></label>
+                        </div>
+                    </details>
 
                     <details class="comfy-workflow-advanced" id="comfyWorkflowAdvanced">
                         <summary><i data-lucide="braces"></i><span data-i18n="comfyStudio.advancedWorkflow">高级：自定义 API 工作流</span></summary>
@@ -4968,7 +5110,7 @@
                             <input id="comfyWorkflowFile" type="file" accept=".json,application/json" hidden>
                             <button class="comfy-workflow-upload" id="comfyImportWorkflow" type="button"><i
                                 data-lucide="file-up"></i><span data-i18n="comfyStudio.importWorkflow">导入 API 工作流 JSON</span></button>
-                            <label class="comfy-field">
+                            <label class="comfy-field" data-help-key="workflowJson">
                                 <span data-i18n="comfyStudio.workflowJson">工作流 JSON</span>
                                 <textarea id="comfyWorkflowJson" rows="10" spellcheck="false"
                                     data-i18n-placeholder="comfyStudio.workflowPlaceholder" placeholder="粘贴 ComfyUI API 工作流 JSON…"></textarea>
@@ -4995,13 +5137,38 @@
                     <div><span class="comfy-kicker" data-i18n="comfyStudio.outputKicker">OUTPUT</span>
                         <h2 data-i18n="comfyStudio.resultTitle">生成结果</h2>
                     </div>
-                    <button class="comfy-icon-btn" id="comfyOpenOutputFolder" type="button" data-i18n-title="home.openFolder"><i
+                    <div class="comfy-result-toolbar-actions">
+                        <span class="comfy-result-stats" id="comfyResultStats" hidden></span>
+                        <button class="comfy-chip-btn" id="comfyClearResults" type="button" hidden
+                data-i18n="comfyStudio.clearResults">清空</button>
+                        <button class="comfy-icon-btn" id="comfyOpenOutputFolder" type="button" data-i18n-title="home.openFolder"><i
               data-lucide="folder-open"></i></button>
+                    </div>
                 </div>
+                <div class="comfy-result-summary" id="comfyResultSummary" hidden></div>
                 <div class="comfy-result-empty" id="comfyResultEmpty">
                     <div class="comfy-orbit"><i data-lucide="sparkles"></i></div>
                     <h3 data-i18n="comfyStudio.emptyTitle">从一个想法开始</h3>
                     <p data-i18n="comfyStudio.emptyDesc">连接引擎、选择模型并输入提示词，作品会出现在这里。</p>
+                    <ol class="comfy-start-steps">
+                        <li><span class="comfy-start-index">1</span>
+                            <div><strong data-i18n="comfyStudio.startStep1Title">连接生成引擎</strong>
+                                <span data-i18n="comfyStudio.startStep1Desc">在设置里选择 ComfyUI 目录，或填写远程服务地址。</span>
+                            </div>
+                        </li>
+                        <li><span class="comfy-start-index">2</span>
+                            <div><strong data-i18n="comfyStudio.startStep2Title">挑一个示例或写提示词</strong>
+                                <span data-i18n="comfyStudio.startStep2Desc">左栏的示例提示词可以一键填入，改几个词就有自己的作品。</span>
+                            </div>
+                        </li>
+                        <li><span class="comfy-start-index">3</span>
+                            <div><strong data-i18n="comfyStudio.startStep3Title">点击开始生成</strong>
+                                <span data-i18n="comfyStudio.startStep3Desc">成片会自动保存到输出目录，可随时打开文件夹查看。</span>
+                            </div>
+                        </li>
+                    </ol>
+                    <button class="comfy-btn secondary" id="comfyEmptyOpenSettings" type="button"><i
+              data-lucide="settings-2"></i><span data-i18n="comfyStudio.settingsButton">设置</span></button>
                 </div>
                 <div class="comfy-result-grid" id="comfyResultGrid"></div>
                 <div class="comfy-error-card" id="comfyErrorCard" hidden></div>

@@ -1,6 +1,26 @@
+import { createIcons, icons } from 'lucide';
 import { getLang, onLangChange, t } from './i18n.js';
+import {
+  IMAGE_STYLE_PRESETS,
+  IMAGE_QUALITY_TAGS,
+  IMAGE_NEGATIVE_TAGS,
+  IMAGE_EXAMPLES,
+  VIDEO_CAMERA_TAGS,
+  VIDEO_MOOD_TAGS,
+  VIDEO_EXAMPLES,
+  DEFAULT_NEGATIVE,
+  FIELD_HELP,
+  IMAGE_SIZE_PRESETS,
+  VIDEO_SIZE_PRESETS,
+  IMAGE_QUALITY_PRESETS,
+  VIDEO_QUALITY_PRESETS,
+  PROMPT_TIPS,
+  pickText,
+} from './comfy-presets.js';
 
 const CONFIG_KEY = 'karui-comfy-engine-v1';
+const PROMPT_LIBRARY_KEY = 'karui-comfy-prompt-library-v1';
+const PROMPT_DRAFT_KEY = 'karui-comfy-prompt-draft-v1';
 const isTauri = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__;
 
 const elements = {
@@ -77,6 +97,38 @@ const elements = {
     sampler: document.getElementById('comfySampler'),
     scheduler: document.getElementById('comfyScheduler'),
     seed: document.getElementById('comfySeed'),
+    batch: document.getElementById('comfyBatch'),
+    promptCount: document.getElementById('comfyPromptCount'),
+    promptClear: document.getElementById('comfyPromptClear'),
+    promptSave: document.getElementById('comfyPromptSave'),
+    imageStyles: document.getElementById('comfyImageStyles'),
+    imageQuality: document.getElementById('comfyImageQuality'),
+    imageExamples: document.getElementById('comfyImageExamples'),
+    imageNegatives: document.getElementById('comfyImageNegatives'),
+    videoNegatives: document.getElementById('comfyVideoNegatives'),
+    videoNegative: document.getElementById('comfyVideoNegative'),
+    videoPromptCount: document.getElementById('comfyVideoPromptCount'),
+    videoPromptClear: document.getElementById('comfyVideoPromptClear'),
+    videoPromptSave: document.getElementById('comfyVideoPromptSave'),
+    videoCamera: document.getElementById('comfyVideoCamera'),
+    videoMood: document.getElementById('comfyVideoMood'),
+    videoExamples: document.getElementById('comfyVideoExamples'),
+    promptInspire: document.getElementById('comfyPromptInspire'),
+    videoPromptInspire: document.getElementById('comfyVideoPromptInspire'),
+    promptTips: document.getElementById('comfyPromptTips'),
+    imagePreset: document.getElementById('comfyImagePreset'),
+    imageRatio: document.getElementById('comfyImageRatio'),
+    imageParamPreview: document.getElementById('comfyImageParamPreview'),
+    videoPreset: document.getElementById('comfyVideoPreset'),
+    videoRatio: document.getElementById('comfyVideoRatio'),
+    videoParamPreview: document.getElementById('comfyVideoParamPreview'),
+    resultStats: document.getElementById('comfyResultStats'),
+    clearResults: document.getElementById('comfyClearResults'),
+    emptyOpenSettings: document.getElementById('comfyEmptyOpenSettings'),
+    promptLibrary: document.getElementById('comfyPromptLibrary'),
+    libraryList: document.getElementById('comfyLibraryList'),
+    libraryEmpty: document.getElementById('comfyLibraryEmpty'),
+    resultSummary: document.getElementById('comfyResultSummary'),
     workflowFile: document.getElementById('comfyWorkflowFile'),
     importWorkflow: document.getElementById('comfyImportWorkflow'),
     workflowJson: document.getElementById('comfyWorkflowJson'),
@@ -98,6 +150,8 @@ let runCancelled = false;
 let lastOutputDir = '';
 let videoEnvironment = null;
 let modelRefreshPromise = null;
+let lastRunSeed = -1;
+let videoNegativeTouched = false;
 
 function loadConfig() {
     const fallback = {
@@ -563,6 +617,402 @@ async function stopLocalEngine () {
   setConnectionStatus('offline', t('comfyStudio.offline'));
 }
 
+/* ---------------- 提示词工作台 ---------------- */
+
+function uiLang () {
+  return getLang() === 'zh' ? 'zh' : 'en';
+}
+
+function refreshIcons () {
+  try {
+    createIcons({ icons });
+  } catch (_) {
+    if (window.lucide && typeof window.lucide.createIcons === 'function') window.lucide.createIcons();
+  }
+}
+
+function splitTags (value) {
+  return String(value || '').split(/[,，]/).map((part) => part.trim()).filter(Boolean);
+}
+
+function hasTag (textarea, tag) {
+  return splitTags(textarea.value).some((part) => part.toLowerCase() === tag.toLowerCase());
+}
+
+function toggleTag (textarea, tag) {
+  const parts = splitTags(textarea.value);
+  const index = parts.findIndex((part) => part.toLowerCase() === tag.toLowerCase());
+  if (index >= 0) parts.splice(index, 1);
+  else parts.push(tag);
+  textarea.value = parts.join(', ');
+  syncPromptUI();
+}
+
+function renderChipRow (container, items, textarea) {
+  if (!container) return;
+  container.innerHTML = '';
+  items.forEach((item) => {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'comfy-chip';
+    chip.dataset.tag = item.tag;
+    chip.textContent = pickText(item.label, uiLang());
+    chip.title = item.tag;
+    chip.__target = textarea;
+    chip.addEventListener('click', () => toggleTag(textarea, item.tag));
+    container.appendChild(chip);
+  });
+}
+
+function renderExamples (container, examples, onPick) {
+  if (!container) return;
+  container.innerHTML = '';
+  examples.forEach((example) => {
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'comfy-example-card';
+    const icon = document.createElement('i');
+    icon.setAttribute('data-lucide', example.icon || 'sparkles');
+    const copy = document.createElement('span');
+    copy.className = 'comfy-example-copy';
+    const title = document.createElement('strong');
+    title.textContent = pickText(example.title, uiLang());
+    const desc = document.createElement('span');
+    desc.textContent = pickText(example.prompt, uiLang());
+    copy.append(title, desc);
+    card.append(icon, copy);
+    card.addEventListener('click', () => onPick(example));
+    container.appendChild(card);
+  });
+  refreshIcons();
+}
+
+function loadPromptLibrary () {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PROMPT_LIBRARY_KEY) || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function savePromptLibrary (list) {
+  localStorage.setItem(PROMPT_LIBRARY_KEY, JSON.stringify(list));
+}
+
+function renderPromptLibrary () {
+  if (!elements.libraryList) return;
+  const list = loadPromptLibrary();
+  elements.libraryList.innerHTML = '';
+  elements.libraryEmpty.hidden = list.length > 0;
+  list.forEach((entry) => {
+    const row = document.createElement('div');
+    row.className = 'comfy-library-item';
+    const kind = document.createElement('span');
+    kind.className = 'comfy-library-kind';
+    kind.textContent = entry.kind === 'video' ? t('comfyStudio.videoMode') : t('comfyStudio.imageMode');
+    const text = document.createElement('span');
+    text.className = 'comfy-library-text';
+    text.textContent = entry.prompt;
+    const actions = document.createElement('div');
+    actions.className = 'comfy-library-actions';
+    const apply = document.createElement('button');
+    apply.type = 'button';
+    apply.className = 'comfy-mini-btn';
+    apply.textContent = t('comfyStudio.libraryApply');
+    apply.addEventListener('click', () => applyLibraryEntry(entry));
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'comfy-mini-btn danger';
+    remove.textContent = t('common.delete');
+    remove.addEventListener('click', () => {
+      savePromptLibrary(loadPromptLibrary().filter((item) => item.id !== entry.id));
+      renderPromptLibrary();
+    });
+    actions.append(apply, remove);
+    row.append(kind, text, actions);
+    elements.libraryList.appendChild(row);
+  });
+}
+
+function applyLibraryEntry (entry) {
+  const isVideo = entry.kind === 'video';
+  const prompt = isVideo ? elements.videoPrompt : elements.prompt;
+  const negative = isVideo ? elements.videoNegative : elements.negativePrompt;
+  if (prompt) prompt.value = entry.prompt || '';
+  if (negative && entry.negative) negative.value = entry.negative;
+  if (isVideo) setStudioMode('workflow');
+  else setStudioMode('image');
+  syncPromptUI();
+}
+
+function saveCurrentPrompt (kind) {
+  const isVideo = kind === 'video';
+  const prompt = isVideo ? elements.videoPrompt.value.trim() : elements.prompt.value.trim();
+  if (!prompt) {
+    showError(t('comfyStudio.noPrompt'));
+    return;
+  }
+  const negative = (isVideo ? elements.videoNegative.value : elements.negativePrompt.value).trim();
+  const list = loadPromptLibrary();
+  const duplicate = list.some((item) => item.kind === kind && item.prompt === prompt);
+  if (duplicate) {
+    showError(t('comfyStudio.libraryDuplicate'));
+    return;
+  }
+  const seed = splitTags(prompt).slice(0, 4).join(' ') || prompt.slice(0, 18);
+  list.unshift({
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    kind,
+    title: seed,
+    prompt,
+    negative,
+    createdAt: Date.now(),
+  });
+  savePromptLibrary(list.slice(0, 40));
+  renderPromptLibrary();
+  if (elements.promptLibrary) elements.promptLibrary.open = true;
+  clearError();
+}
+
+function setPromptCount (target, textarea) {
+  if (!target || !textarea) return;
+  const count = textarea.value.trim().length;
+  target.textContent = `${count}`;
+  target.dataset.empty = count === 0 ? 'true' : 'false';
+}
+
+function savePromptDraft () {
+  try {
+    localStorage.setItem(PROMPT_DRAFT_KEY, JSON.stringify({
+      prompt: elements.prompt?.value || '',
+      negative: elements.negativePrompt?.value || '',
+      videoPrompt: elements.videoPrompt?.value || '',
+      videoNegative: elements.videoNegative?.value || '',
+    }));
+  } catch (_) { }
+}
+
+function loadPromptDraft () {
+  try {
+    const draft = JSON.parse(localStorage.getItem(PROMPT_DRAFT_KEY) || '{}');
+    if (elements.prompt && draft.prompt) elements.prompt.value = draft.prompt;
+    if (elements.negativePrompt && draft.negative) elements.negativePrompt.value = draft.negative;
+    if (elements.videoPrompt && draft.videoPrompt) elements.videoPrompt.value = draft.videoPrompt;
+    if (elements.videoNegative && draft.videoNegative) elements.videoNegative.value = draft.videoNegative;
+  } catch (_) { }
+}
+
+function syncPromptUI () {
+  setPromptCount(elements.promptCount, elements.prompt);
+  setPromptCount(elements.videoPromptCount, elements.videoPrompt);
+  document.querySelectorAll('.comfy-chip').forEach((chip) => {
+    const source = chip.__target;
+    if (source) chip.classList.toggle('active', hasTag(source, chip.dataset.tag));
+  });
+  savePromptDraft();
+}
+
+function buildPromptLab () {
+  const lang = uiLang();
+  renderChipRow(elements.imageStyles, IMAGE_STYLE_PRESETS, elements.prompt);
+  renderChipRow(elements.imageQuality, IMAGE_QUALITY_TAGS, elements.prompt);
+  renderChipRow(elements.imageNegatives, IMAGE_NEGATIVE_TAGS, elements.negativePrompt);
+  renderChipRow(elements.videoCamera, VIDEO_CAMERA_TAGS, elements.videoPrompt);
+  renderChipRow(elements.videoMood, VIDEO_MOOD_TAGS, elements.videoPrompt);
+  renderChipRow(elements.videoNegatives, IMAGE_NEGATIVE_TAGS, elements.videoNegative);
+  renderExamples(elements.imageExamples, IMAGE_EXAMPLES, (example) => {
+    elements.prompt.value = pickText(example.prompt, lang);
+    if (example.negative) elements.negativePrompt.value = example.negative;
+    syncPromptUI();
+  });
+  renderExamples(elements.videoExamples, VIDEO_EXAMPLES, (example) => {
+    elements.videoPrompt.value = pickText(example.prompt, lang);
+    syncPromptUI();
+  });
+  if (elements.videoNegative && !videoNegativeTouched && !elements.videoNegative.value) {
+    elements.videoNegative.value = pickText(DEFAULT_NEGATIVE, lang);
+  }
+  renderTips();
+  renderSizePresets(elements.imageRatio, IMAGE_SIZE_PRESETS, elements.width, elements.height);
+  renderSizePresets(elements.videoRatio, VIDEO_SIZE_PRESETS, elements.videoWidth, elements.videoHeight);
+  renderQualityPresets(elements.imagePreset, IMAGE_QUALITY_PRESETS, (preset) => {
+    elements.width.value = preset.width;
+    elements.height.value = preset.height;
+    elements.steps.value = preset.steps;
+    elements.cfg.value = preset.cfg;
+  });
+  renderQualityPresets(elements.videoPreset, VIDEO_QUALITY_PRESETS, (preset) => {
+    elements.videoWidth.value = preset.width;
+    elements.videoHeight.value = preset.height;
+    elements.videoDuration.value = preset.duration;
+    elements.videoFps.value = preset.fps;
+    elements.videoSteps.value = preset.steps;
+    elements.videoCfg.value = preset.cfg;
+  });
+  applyFieldHelp();
+  renderPromptLibrary();
+  syncPromptUI();
+  syncParamUI();
+}
+
+function applyFieldHelp () {
+  const lang = uiLang();
+  document.querySelectorAll('.comfy-field[data-help-key]').forEach((field) => {
+    const text = pickText(FIELD_HELP[field.dataset.helpKey], lang);
+    if (!text) return;
+    let help = field.querySelector(':scope > .comfy-field-help');
+    if (!help) {
+      help = document.createElement('small');
+      help.className = 'comfy-field-help';
+      field.appendChild(help);
+    }
+    help.textContent = text;
+  });
+}
+
+function renderSizePresets (container, presets, width, height) {
+  if (!container) return;
+  container.innerHTML = '';
+  presets.forEach((preset) => {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'comfy-chip';
+    chip.dataset.sizeId = preset.id;
+    chip.textContent = pickText(preset.label, uiLang());
+    chip.title = `${preset.width} × ${preset.height}`;
+    chip.addEventListener('click', () => {
+      width.value = preset.width;
+      height.value = preset.height;
+      syncParamUI();
+    });
+    container.appendChild(chip);
+  });
+}
+
+function renderQualityPresets (container, presets, onApply) {
+  if (!container) return;
+  container.innerHTML = '';
+  presets.forEach((preset) => {
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'comfy-preset-card';
+    card.dataset.presetId = preset.id;
+    const title = document.createElement('strong');
+    title.textContent = pickText(preset.label, uiLang());
+    const hint = document.createElement('span');
+    hint.textContent = pickText(preset.hint, uiLang());
+    card.append(title, hint);
+    card.addEventListener('click', () => {
+      onApply(preset);
+      syncParamUI();
+    });
+    container.appendChild(card);
+  });
+}
+
+function renderTips () {
+  if (!elements.promptTips) return;
+  const lang = uiLang();
+  elements.promptTips.innerHTML = '';
+  PROMPT_TIPS.forEach((tip) => {
+    const item = document.createElement('li');
+    item.textContent = pickText(tip, lang);
+    elements.promptTips.appendChild(item);
+  });
+}
+
+function numberValue (input, fallback) {
+  const value = Number(input?.value);
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function syncParamUI () {
+  const imageWidth = numberValue(elements.width, 1024);
+  const imageHeight = numberValue(elements.height, 1024);
+  const imageSteps = numberValue(elements.steps, 24);
+  const imageCfg = numberValue(elements.cfg, 7);
+  elements.imageRatio?.querySelectorAll('.comfy-chip').forEach((chip) => {
+    const preset = IMAGE_SIZE_PRESETS.find((item) => item.id === chip.dataset.sizeId);
+    chip.classList.toggle('active', !!preset && preset.width === imageWidth && preset.height === imageHeight);
+  });
+  elements.imagePreset?.querySelectorAll('.comfy-preset-card').forEach((card) => {
+    const preset = IMAGE_QUALITY_PRESETS.find((item) => item.id === card.dataset.presetId);
+    card.classList.toggle('active', !!preset
+      && preset.steps === imageSteps && preset.cfg === imageCfg
+      && preset.width === imageWidth && preset.height === imageHeight);
+  });
+  if (elements.imageParamPreview) {
+    elements.imageParamPreview.textContent = [
+      `${imageWidth}×${imageHeight}`,
+      `${t('comfyStudio.steps')} ${imageSteps}`,
+      `CFG ${imageCfg}`,
+      `${t('comfyStudio.batchCount')} ${numberValue(elements.batch, 1)}`,
+    ].join(' · ');
+  }
+
+  const videoWidth = numberValue(elements.videoWidth, 832);
+  const videoHeight = numberValue(elements.videoHeight, 480);
+  const videoSteps = numberValue(elements.videoSteps, 20);
+  const videoCfg = numberValue(elements.videoCfg, 6);
+  const duration = numberValue(elements.videoDuration, 5);
+  const fps = numberValue(elements.videoFps, 16);
+  elements.videoRatio?.querySelectorAll('.comfy-chip').forEach((chip) => {
+    const preset = VIDEO_SIZE_PRESETS.find((item) => item.id === chip.dataset.sizeId);
+    chip.classList.toggle('active', !!preset && preset.width === videoWidth && preset.height === videoHeight);
+  });
+  elements.videoPreset?.querySelectorAll('.comfy-preset-card').forEach((card) => {
+    const preset = VIDEO_QUALITY_PRESETS.find((item) => item.id === card.dataset.presetId);
+    card.classList.toggle('active', !!preset
+      && preset.steps === videoSteps && preset.cfg === videoCfg
+      && preset.width === videoWidth && preset.height === videoHeight
+      && preset.duration === duration && preset.fps === fps);
+  });
+  if (elements.videoParamPreview) {
+    elements.videoParamPreview.textContent = [
+      `${videoWidth}×${videoHeight}`,
+      `${duration}${t('comfyStudio.summarySeconds')}`,
+      `${fps}fps`,
+      `${t('comfyStudio.steps')} ${videoSteps}`,
+      `CFG ${videoCfg}`,
+    ].join(' · ');
+  }
+}
+
+function updateResultStats (count) {
+  if (!elements.resultStats) return;
+  if (!count) {
+    elements.resultStats.hidden = true;
+    elements.clearResults.hidden = true;
+    return;
+  }
+  elements.resultStats.hidden = false;
+  elements.resultStats.textContent = t('comfyStudio.resultCount', { count });
+  elements.clearResults.hidden = false;
+}
+
+function clearResults () {
+  elements.resultGrid.innerHTML = '';
+  elements.resultEmpty.hidden = false;
+  renderSummary(null);
+  updateResultStats(0);
+  elements.progress.hidden = true;
+}
+
+function inspirePrompt (kind) {
+  const isVideo = kind === 'video';
+  const source = isVideo ? VIDEO_EXAMPLES : IMAGE_EXAMPLES;
+  const target = isVideo ? elements.videoPrompt : elements.prompt;
+  const current = target.value.trim();
+  const lang = uiLang();
+  const pool = source.filter((item) => pickText(item.prompt, lang) !== current);
+  const picked = (pool.length ? pool : source)[Math.floor(Math.random() * (pool.length || source.length))];
+  if (!picked) return;
+  target.value = pickText(picked.prompt, lang);
+  if (!isVideo && picked.negative) elements.negativePrompt.value = picked.negative;
+  syncPromptUI();
+}
+
 function positiveInteger (input, fallback, min = 1, max = Number.MAX_SAFE_INTEGER) {
   const value = Math.round(Number(input.value));
   return Math.min(max, Math.max(min, Number.isFinite(value) ? value : fallback));
@@ -577,6 +1027,7 @@ function buildImageWorkflow () {
   const seed = Number.isFinite(seedInput) && seedInput >= 0
     ? Math.floor(seedInput)
     : Math.floor(Math.random() * 0x7fffffff);
+  lastRunSeed = seed;
   return {
     '3': {
       class_type: 'KSampler', inputs: {
@@ -594,7 +1045,7 @@ function buildImageWorkflow () {
       class_type: 'EmptyLatentImage', inputs: {
         width: positiveInteger(elements.width, 1024, 64, 4096),
         height: positiveInteger(elements.height, 1024, 64, 4096),
-        batch_size: 1,
+        batch_size: positiveInteger(elements.batch, 1, 1, 8),
       }
     },
     '6': { class_type: 'CLIPTextEncode', inputs: { text: prompt, clip: ['4', 1] } },
@@ -625,6 +1076,10 @@ function buildWanVideoWorkflow () {
   const seed = Number.isFinite(seedValue) && seedValue >= 0
     ? Math.floor(seedValue)
     : Math.floor(Math.random() * 0x7fffffff);
+  lastRunSeed = seed;
+  const negativeText = elements.videoNegative && elements.videoNegative.value.trim()
+    ? elements.videoNegative.value.trim()
+    : 'low quality, blurry, distorted, static, watermark, text';
   const sampler = preferredOption(info, 'KSampler', 'sampler_name', /^euler$/, 'euler');
   const scheduler = preferredOption(info, 'KSampler', 'scheduler', /simple|normal/, 'normal');
   const fps = positiveInteger(elements.videoFps, 16, 1, 60);
@@ -643,9 +1098,7 @@ function buildWanVideoWorkflow () {
     } },
     '3': { class_type: 'VAELoader', inputs: { vae_name: elements.videoVae.value } },
     '4': { class_type: 'CLIPTextEncode', inputs: { text: prompt, clip: ['2', 0] } },
-    '5': { class_type: 'CLIPTextEncode', inputs: {
-      text: 'low quality, blurry, distorted, static, watermark, text', clip: ['2', 0],
-    } },
+    '5': { class_type: 'CLIPTextEncode', inputs: { text: negativeText, clip: ['2', 0] } },
     '6': { class_type: 'EmptyHunyuanLatentVideo', inputs: {
       width: positiveInteger(elements.videoWidth, 832, 256, 1920),
       height: positiveInteger(elements.videoHeight, 480, 256, 1920),
@@ -788,9 +1241,32 @@ async function materializeOutput (file, index) {
   return { ...file, src: convertFileSrc(localPath), localPath };
 }
 
-function renderOutputs (outputs) {
+function renderSummary (meta) {
+  if (!elements.resultSummary) return;
+  if (!meta) {
+    elements.resultSummary.hidden = true;
+    return;
+  }
+  elements.resultSummary.hidden = false;
+  elements.resultSummary.innerHTML = '';
+  meta.chips.forEach((chip) => {
+    const node = document.createElement('span');
+    node.className = 'comfy-summary-chip';
+    node.textContent = chip;
+    elements.resultSummary.appendChild(node);
+  });
+  if (!meta.prompt) return;
+  const prompt = document.createElement('p');
+  prompt.className = 'comfy-summary-prompt';
+  prompt.textContent = meta.prompt;
+  elements.resultSummary.appendChild(prompt);
+}
+
+function renderOutputs (outputs, meta = {}) {
   elements.resultGrid.innerHTML = '';
   elements.resultEmpty.hidden = true;
+  renderSummary(meta);
+  updateResultStats(outputs.length);
   outputs.forEach((file) => {
     const item = document.createElement('article');
     item.className = 'comfy-result-item';
@@ -804,12 +1280,71 @@ function renderOutputs (outputs) {
     } else {
       media.loading = 'lazy';
     }
+    const body = document.createElement('div');
+    body.className = 'comfy-result-body';
     const name = document.createElement('span');
     name.className = 'comfy-result-name';
     name.textContent = file.filename;
-    item.append(media, name);
+    body.appendChild(name);
+
+    const actions = document.createElement('div');
+    actions.className = 'comfy-result-actions';
+    if (meta.prompt) {
+      const copy = document.createElement('button');
+      copy.type = 'button';
+      copy.className = 'comfy-mini-btn';
+      copy.textContent = t('comfyStudio.copyPrompt');
+      copy.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(meta.prompt);
+          copy.textContent = t('comfyStudio.copied');
+          setTimeout(() => { copy.textContent = t('comfyStudio.copyPrompt'); }, 1600);
+        } catch (_) {
+          showError(t('comfyStudio.copyFailed'));
+        }
+      });
+      actions.appendChild(copy);
+    }
+    if (file.localPath && isTauri) {
+      const open = document.createElement('button');
+      open.type = 'button';
+      open.className = 'comfy-mini-btn';
+      open.textContent = t('comfyStudio.openFile');
+      open.addEventListener('click', () => {
+        tauriInvoke('open_path', { path: file.localPath }).catch((error) => showError(error));
+      });
+      actions.appendChild(open);
+    }
+    if (actions.children.length) body.appendChild(actions);
+    item.append(media, body);
     elements.resultGrid.appendChild(item);
   });
+}
+
+function buildRunMeta (useAdvancedWorkflow, startedAt) {
+  const elapsed = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
+  const isVideo = studioMode === 'workflow';
+  const chips = [];
+  if (useAdvancedWorkflow) chips.push(t('comfyStudio.summaryWorkflow'));
+  else chips.push(isVideo ? t('comfyStudio.videoMode') : t('comfyStudio.imageMode'));
+  if (isVideo) {
+    chips.push(`${positiveInteger(elements.videoWidth, 832, 256, 1920)}×${positiveInteger(elements.videoHeight, 480, 256, 1920)}`);
+    chips.push(`${positiveInteger(elements.videoDuration, 5, 1, 60)}${t('comfyStudio.summarySeconds')}`);
+    chips.push(`${positiveInteger(elements.videoFps, 16, 1, 60)}fps`);
+    if (!useAdvancedWorkflow) chips.push(`${t('comfyStudio.steps')} ${positiveInteger(elements.videoSteps, 20, 1, 100)}`);
+    if (elements.videoModel?.value) chips.push(elements.videoModel.value);
+  } else {
+    chips.push(`${positiveInteger(elements.width, 1024, 64, 4096)}×${positiveInteger(elements.height, 1024, 64, 4096)}`);
+    chips.push(`${t('comfyStudio.steps')} ${positiveInteger(elements.steps, 24, 1, 150)}`);
+    chips.push(`CFG ${Number(elements.cfg.value) || 7}`);
+    if (elements.checkpoint?.value) chips.push(elements.checkpoint.value);
+  }
+  chips.push(`Seed ${lastRunSeed}`);
+  chips.push(`${elapsed}s`);
+  return {
+    chips,
+    prompt: (isVideo ? elements.videoPrompt.value : elements.prompt.value).trim(),
+  };
 }
 
 async function runWorkflow () {
@@ -817,6 +1352,8 @@ async function runWorkflow () {
   runCancelled = false;
   activePromptId = '';
   lastOutputDir = '';
+  lastRunSeed = -1;
+  const startedAt = Date.now();
   setRunning(true);
   setProgress(8, t('comfyStudio.preparing'));
   try {
@@ -841,7 +1378,7 @@ async function runWorkflow () {
       if (runCancelled) throw new Error(t('comfyStudio.cancelled'));
       outputs.push(await materializeOutput(descriptors[index], index));
     }
-    renderOutputs(outputs);
+    renderOutputs(outputs, buildRunMeta(useAdvancedWorkflow, startedAt));
     setProgress(100, t('comfyStudio.completed'));
   } catch (error) {
     showError(error);
@@ -1048,9 +1585,47 @@ document.querySelectorAll('.audio-list-item[data-tool="comfy-video"]').forEach((
   });
 });
 
+elements.promptClear?.addEventListener('click', () => {
+  elements.prompt.value = '';
+  syncPromptUI();
+});
+elements.videoPromptClear?.addEventListener('click', () => {
+  elements.videoPrompt.value = '';
+  syncPromptUI();
+});
+elements.promptSave?.addEventListener('click', () => saveCurrentPrompt('image'));
+elements.videoPromptSave?.addEventListener('click', () => saveCurrentPrompt('video'));
+elements.promptInspire?.addEventListener('click', () => inspirePrompt('image'));
+elements.videoPromptInspire?.addEventListener('click', () => inspirePrompt('video'));
+elements.clearResults?.addEventListener('click', clearResults);
+elements.emptyOpenSettings?.addEventListener('click', openEngineSettings);
+[elements.prompt, elements.negativePrompt, elements.videoPrompt].forEach((field) => {
+  field?.addEventListener('input', syncPromptUI);
+});
+elements.videoNegative?.addEventListener('input', () => {
+  videoNegativeTouched = true;
+  syncPromptUI();
+});
+[
+  elements.width, elements.height, elements.steps, elements.cfg,
+  elements.sampler, elements.scheduler, elements.batch,
+  elements.videoWidth, elements.videoHeight, elements.videoDuration,
+  elements.videoFps, elements.videoSteps, elements.videoCfg,
+].forEach((field) => {
+  field?.addEventListener('change', syncParamUI);
+  field?.addEventListener('input', syncParamUI);
+});
+elements.promptLibrary?.addEventListener('toggle', () => {
+  if (elements.promptLibrary.open) renderPromptLibrary();
+});
+
 onLangChange(() => {
   if (elements.connectionPill.dataset.state !== 'online') setConnectionStatus('offline', t('comfyStudio.offline'));
+  buildPromptLab();
 });
 
 writeConfigForm();
 syncModelAccess();
+loadPromptDraft();
+buildPromptLab();
+updateResultStats(0);
