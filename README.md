@@ -13,13 +13,27 @@ Karui 工具箱是一款本地多功能桌面工具应用，集成 PDF、图片�
 
 ## 开发运行
 
+Windows 一键启动（双击即可，自动挑选 Node 18+ 并打开浏览器）：
+
+```text
+toolknit-desktop\start-windows.bat
+```
+
+手动运行：
+
 ```powershell
 cd toolknit-desktop
 npm install
 npm run dev
 ```
 
+> 需要 Node.js 18 及以上版本（Vite 5 在 Node 17 上会启动失败）。
+
 默认访问地址：`http://127.0.0.1:1420`
+
+## 智能创作开发知识库
+
+Karui 创作工程、专业视频时间线、AI Skill、参考图修图和用户记忆系统的后续开发规范，见 [开发知识库](toolknit-desktop/docs/README.md)。后续 AI 或开发者应先阅读接手指南，再从任务清单中选择单个任务实现。
 
 ## 桌面端运行
 

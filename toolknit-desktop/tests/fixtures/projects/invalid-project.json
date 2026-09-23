@@ -1,0 +1,49 @@
+{
+  "schema": "karui.project",
+  "schemaVersion": 1,
+  "projectId": "not-a-uuid",
+  "name": "",
+  "createdAt": "not-a-date",
+  "updatedAt": "2026-09-23T00:00:00.000Z",
+  "settings": {
+    "width": 0,
+    "height": 1080,
+    "frameRate": { "num": 0, "den": 1 },
+    "sampleRate": 100,
+    "colorSpace": "",
+    "background": ""
+  },
+  "assets": {},
+  "sequences": {
+    "20000000-0000-4000-8000-000000000004": {
+      "id": "20000000-0000-4000-8000-000000000004",
+      "name": "损坏序列",
+      "tracks": [
+        {
+          "id": "40000000-0000-4000-8000-000000000003",
+          "kind": "video",
+          "name": "V1",
+          "locked": false,
+          "muted": false,
+          "items": [
+            {
+              "id": "50000000-0000-4000-8000-000000000006",
+              "type": "clip",
+              "assetId": "ffffffff-ffff-4fff-8fff-ffffffffffff",
+              "timelineStart": 0,
+              "duration": 2000000,
+              "sourceIn": 0,
+              "sourceDuration": 2000000
+            }
+          ]
+        }
+      ],
+      "markers": [],
+      "durationTicks": 1000000
+    }
+  },
+  "activeSequenceId": "ffffffff-ffff-4fff-8fff-ffffffffffff",
+  "memoryRefs": "invalid",
+  "metadata": []
+}
+

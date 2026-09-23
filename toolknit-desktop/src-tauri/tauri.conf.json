@@ -5,7 +5,7 @@
     "identifier": "com.karui.toolbox",
     "build": {
         "frontendDist": "../dist",
-        "devUrl": "http://localhost:1420",
+        "devUrl": "http://127.0.0.1:1420",
         "beforeDevCommand": "npm run dev",
         "beforeBuildCommand": "npm run build"
     },
@@ -27,7 +27,7 @@
             "dragDropEnabled": true
         }],
         "security": {
-            "csp": "default-src 'self'; img-src 'self' asset: blob: data: https://pic1.imgdb.cn; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' https://api.deepseek.com https://api.openai.com https://dashscope.aliyuncs.com https://api.moonshot.cn; font-src 'self' data:",
+            "csp": "default-src 'self'; img-src 'self' asset: blob: data: https://pic1.imgdb.cn; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ws://127.0.0.1:8188 ws://localhost:8188 http://127.0.0.1:8188 http://localhost:8188 https://api.deepseek.com https://api.openai.com https://dashscope.aliyuncs.com https://api.moonshot.cn; font-src 'self' data:",
             "assetProtocol": {
                 "enable": true,
                 "scope": ["$DOCUMENT/*", "$DOWNLOAD/*", "$APPDATA/*"]

@@ -4513,6 +4513,32 @@
                     <p data-i18n="comfyStudio.engineLead">Karui 提供图片与视频工作流创作体验。</p>
                 </div>
             </div>
+            <section class="comfy-hardware-card" id="comfyHardwareCard">
+                <div class="comfy-hardware-head">
+                    <div>
+                        <span class="comfy-kicker">SYSTEM ADVISOR</span>
+                        <h3 data-i18n="comfyStudio.hardwareTitle">系统能力检测</h3>
+                        <p data-i18n="comfyStudio.hardwareLead">检测 CPU、内存、显卡和显存，给出本地模型运行建议。</p>
+                    </div>
+                    <button class="comfy-header-btn" id="comfyRefreshHardware" type="button">
+                        <i data-lucide="refresh-cw"></i><span data-i18n="comfyStudio.refreshHardware">重新检测</span>
+                    </button>
+                </div>
+                <div class="comfy-hardware-state" id="comfyHardwareState" data-state="loading">
+                    <span class="comfy-status-dot"></span><span data-i18n="comfyStudio.hardwareDetecting">正在读取电脑配置…</span>
+                </div>
+                <div class="comfy-hardware-grid" id="comfyHardwareGrid">
+                    <article><span>CPU</span><strong id="comfyHardwareCpu">--</strong><small id="comfyHardwareCpuMeta">--</small></article>
+                    <article><span data-i18n="comfyStudio.memory">内存</span><strong id="comfyHardwareMemory">--</strong><small id="comfyHardwareMemoryMeta">--</small></article>
+                    <article><span>GPU</span><strong id="comfyHardwareGpu">--</strong><small id="comfyHardwareGpuMeta">--</small></article>
+                    <article><span data-i18n="comfyStudio.vram">显存</span><strong id="comfyHardwareVram">--</strong><small id="comfyHardwareVramMeta">--</small></article>
+                </div>
+                <div class="comfy-hardware-advice">
+                    <h4 data-i18n="comfyStudio.modelAdvice">本机模型建议</h4>
+                    <div class="comfy-advice-list" id="comfyHardwareAdvice"></div>
+                </div>
+                <p class="comfy-hardware-note" data-i18n="comfyStudio.hardwareDisclaimer">建议为保守估算，实际占用会随模型精度、节点、分辨率和批次数变化；运行时请以实时显存为准。</p>
+            </section>
             <section class="comfy-engine-card">
                 <div class="comfy-segmented" id="comfyEngineMode">
                     <button class="active" type="button" data-mode="local" data-i18n="comfyStudio.localEngine">本地引擎</button>
@@ -4875,6 +4901,13 @@
         </button>
             </div>
         </div>
+        <div class="comfy-runtime-strip" id="comfyRuntimeStrip" aria-live="polite">
+            <span><i data-lucide="cpu"></i>CPU <b id="comfyRuntimeCpu">--</b></span>
+            <span><i data-lucide="memory-stick"></i><span data-i18n="comfyStudio.memory">内存</span> <b id="comfyRuntimeMemory">--</b></span>
+            <span><i data-lucide="gauge"></i>GPU <b id="comfyRuntimeGpu">--</b></span>
+            <span><i data-lucide="component"></i><span data-i18n="comfyStudio.vram">显存</span> <b id="comfyRuntimeVram">--</b></span>
+            <span><i data-lucide="thermometer"></i><span data-i18n="comfyStudio.temperature">温度</span> <b id="comfyRuntimeTemp">--</b></span>
+        </div>
         <div class="comfy-studio-body">
             <aside class="comfy-control-panel">
                 <div class="comfy-studio-tabs" id="comfyStudioTabs">
@@ -5122,7 +5155,10 @@
                 <div class="comfy-run-area">
                     <div class="comfy-progress" id="comfyProgress" hidden>
                         <div class="comfy-progress-track"><span id="comfyProgressFill"></span></div>
-                        <span id="comfyProgressText" data-i18n="comfyStudio.preparing">正在准备任务…</span>
+                        <div class="comfy-progress-line">
+                            <span id="comfyProgressText" data-i18n="comfyStudio.preparing">正在准备任务…</span>
+                            <span class="comfy-progress-timing" id="comfyProgressTiming"></span>
+                        </div>
                     </div>
                     <div class="comfy-run-actions">
                         <button class="comfy-btn secondary" id="comfyCancelRun" type="button" hidden data-i18n="common.cancel">取消</button>

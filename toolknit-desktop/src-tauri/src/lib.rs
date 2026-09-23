@@ -1,4 +1,255 @@
 use tauri::Manager;
+use std::sync::{Mutex, OnceLock};
+
+#[cfg(target_os = "windows")]
+static WINDOWS_SYSTEM_PROFILE: OnceLock<Result<WindowsSystemProfile, String>> = OnceLock::new();
+#[cfg(target_os = "windows")]
+static CPU_TIME_SAMPLE: OnceLock<Mutex<Option<(u64, u64)>>> = OnceLock::new();
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CpuStatus {
+    name: String,
+    logical_cores: usize,
+    physical_cores: Option<usize>,
+    usage_percent: f32,
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MemoryStatus {
+    total_bytes: u64,
+    used_bytes: u64,
+    usage_percent: f32,
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GpuStatus {
+    name: String,
+    vendor: String,
+    dedicated_memory_bytes: Option<u64>,
+    used_memory_bytes: Option<u64>,
+    utilization_percent: Option<f32>,
+    temperature_celsius: Option<f32>,
+    driver_version: Option<String>,
+    runtime_source: String,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SystemStatus {
+    os_name: String,
+    cpu: CpuStatus,
+    memory: MemoryStatus,
+    gpus: Vec<GpuStatus>,
+    captured_at_ms: u128,
+}
+
+#[cfg(target_os = "windows")]
+#[derive(Clone)]
+struct WindowsSystemProfile {
+    os_name: String,
+    cpu_name: String,
+    logical_cores: usize,
+    physical_cores: Option<usize>,
+    gpus: Vec<GpuStatus>,
+}
+
+fn gpu_vendor(name: &str) -> String {
+    let value = name.to_ascii_lowercase();
+    if value.contains("nvidia") || value.contains("geforce") || value.contains("quadro") {
+        "NVIDIA".to_string()
+    } else if value.contains("amd") || value.contains("radeon") {
+        "AMD".to_string()
+    } else if value.contains("intel") || value.contains("arc") {
+        "Intel".to_string()
+    } else {
+        "Unknown".to_string()
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn hidden_command(program: &str) -> std::process::Command {
+    use std::os::windows::process::CommandExt;
+    let mut command = std::process::Command::new(program);
+    command.creation_flags(0x08000000);
+    command
+}
+
+#[cfg(not(target_os = "windows"))]
+fn hidden_command(program: &str) -> std::process::Command {
+    std::process::Command::new(program)
+}
+
+fn query_nvidia_gpus() -> Vec<GpuStatus> {
+    let output = match hidden_command("nvidia-smi")
+        .args([
+            "--query-gpu=name,memory.total,memory.used,utilization.gpu,temperature.gpu,driver_version",
+            "--format=csv,noheader,nounits",
+        ])
+        .output()
+    {
+        Ok(output) if output.status.success() => output,
+        _ => return Vec::new(),
+    };
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| {
+            let values: Vec<&str> = line.split(',').map(str::trim).collect();
+            if values.len() < 6 { return None; }
+            let total_mib = values[1].parse::<u64>().ok();
+            let used_mib = values[2].parse::<u64>().ok();
+            Some(GpuStatus {
+                name: values[0].to_string(),
+                vendor: "NVIDIA".to_string(),
+                dedicated_memory_bytes: total_mib.map(|value| value * 1024 * 1024),
+                used_memory_bytes: used_mib.map(|value| value * 1024 * 1024),
+                utilization_percent: values[3].parse::<f32>().ok(),
+                temperature_celsius: values[4].parse::<f32>().ok(),
+                driver_version: Some(values[5].to_string()),
+                runtime_source: "nvidia-smi".to_string(),
+            })
+        })
+        .collect()
+}
+
+#[cfg(target_os = "windows")]
+fn query_windows_profile() -> Result<WindowsSystemProfile, String> {
+    let script = r#"[Console]::OutputEncoding=[Text.UTF8Encoding]::new(); $cpu=Get-CimInstance Win32_Processor | Select-Object -First 1; $os=Get-CimInstance Win32_OperatingSystem; $gpus=@(Get-CimInstance Win32_VideoController | Select-Object Name,AdapterRAM,DriverVersion); [pscustomobject]@{OsName=($os.Caption+' '+$os.Version);CpuName=$cpu.Name;LogicalCores=$cpu.NumberOfLogicalProcessors;PhysicalCores=$cpu.NumberOfCores;Gpus=$gpus} | ConvertTo-Json -Compress -Depth 4"#;
+    let output = match hidden_command("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command", script])
+        .output()
+    {
+        Ok(output) if output.status.success() => output,
+        Ok(output) => return Err(String::from_utf8_lossy(&output.stderr).trim().to_string()),
+        Err(error) => return Err(error.to_string()),
+    };
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .map_err(|error| format!("Invalid system information: {}", error))?;
+    let gpu_json = json.get("Gpus").cloned().unwrap_or(serde_json::Value::Array(Vec::new()));
+    let gpu_items = match gpu_json {
+        serde_json::Value::Array(items) => items,
+        serde_json::Value::Object(_) => vec![gpu_json],
+        _ => Vec::new(),
+    };
+    let gpus = gpu_items.into_iter().filter_map(|item| {
+        let name = item.get("Name")?.as_str()?.trim().to_string();
+        if name.is_empty() { return None; }
+        Some(GpuStatus {
+            vendor: gpu_vendor(&name),
+            name,
+            dedicated_memory_bytes: item.get("AdapterRAM").and_then(|value| value.as_u64()),
+            used_memory_bytes: None,
+            utilization_percent: None,
+            temperature_celsius: None,
+            driver_version: item.get("DriverVersion").and_then(|value| value.as_str()).map(str::to_string),
+            runtime_source: "windows-cim".to_string(),
+        })
+    }).collect();
+    Ok(WindowsSystemProfile {
+        os_name: json.get("OsName").and_then(|value| value.as_str()).unwrap_or_default().trim().to_string(),
+        cpu_name: json.get("CpuName").and_then(|value| value.as_str()).unwrap_or_default().trim().to_string(),
+        logical_cores: json.get("LogicalCores").and_then(|value| value.as_u64()).unwrap_or(0) as usize,
+        physical_cores: json.get("PhysicalCores").and_then(|value| value.as_u64()).map(|value| value as usize),
+        gpus,
+    })
+}
+
+#[cfg(target_os = "windows")]
+fn filetime_value(value: windows::Win32::Foundation::FILETIME) -> u64 {
+    ((value.dwHighDateTime as u64) << 32) | value.dwLowDateTime as u64
+}
+
+#[cfg(target_os = "windows")]
+fn windows_cpu_usage() -> f32 {
+    use windows::Win32::Foundation::FILETIME;
+    use windows::Win32::System::Threading::GetSystemTimes;
+    let mut idle = FILETIME::default();
+    let mut kernel = FILETIME::default();
+    let mut user = FILETIME::default();
+    if unsafe { GetSystemTimes(Some(&mut idle), Some(&mut kernel), Some(&mut user)) }.is_err() {
+        return 0.0;
+    }
+    let idle_now = filetime_value(idle);
+    let total_now = filetime_value(kernel).saturating_add(filetime_value(user));
+    let sample = CPU_TIME_SAMPLE.get_or_init(|| Mutex::new(None));
+    let mut previous = match sample.lock() { Ok(value) => value, Err(_) => return 0.0 };
+    let (idle_delta, total_delta) = previous
+        .map(|(old_idle, old_total)| (idle_now.saturating_sub(old_idle), total_now.saturating_sub(old_total)))
+        .unwrap_or((idle_now, total_now));
+    *previous = Some((idle_now, total_now));
+    if total_delta == 0 { 0.0 } else {
+        ((total_delta.saturating_sub(idle_delta)) as f64 / total_delta as f64 * 100.0).clamp(0.0, 100.0) as f32
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn windows_memory_status() -> Result<MemoryStatus, String> {
+    use windows::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+    let mut status = MEMORYSTATUSEX::default();
+    status.dwLength = std::mem::size_of::<MEMORYSTATUSEX>() as u32;
+    unsafe { GlobalMemoryStatusEx(&mut status) }.map_err(|error| error.to_string())?;
+    let used = status.ullTotalPhys.saturating_sub(status.ullAvailPhys);
+    Ok(MemoryStatus {
+        total_bytes: status.ullTotalPhys,
+        used_bytes: used,
+        usage_percent: status.dwMemoryLoad as f32,
+    })
+}
+
+#[cfg(target_os = "windows")]
+fn query_windows_system() -> Result<SystemStatus, String> {
+    let profile = WINDOWS_SYSTEM_PROFILE.get_or_init(query_windows_profile).clone()?;
+    Ok(SystemStatus {
+        os_name: profile.os_name,
+        cpu: CpuStatus {
+            name: profile.cpu_name,
+            logical_cores: profile.logical_cores,
+            physical_cores: profile.physical_cores,
+            usage_percent: windows_cpu_usage(),
+        },
+        memory: windows_memory_status()?,
+        gpus: profile.gpus,
+        captured_at_ms: current_time_millis(),
+    })
+}
+
+#[cfg(not(target_os = "windows"))]
+fn query_windows_system() -> Result<SystemStatus, String> {
+    let logical_cores = std::thread::available_parallelism().map(|value| value.get()).unwrap_or(0);
+    Ok(SystemStatus {
+        os_name: std::env::consts::OS.to_string(),
+        cpu: CpuStatus { name: String::new(), logical_cores, physical_cores: None, usage_percent: 0.0 },
+        memory: MemoryStatus { total_bytes: 0, used_bytes: 0, usage_percent: 0.0 },
+        gpus: Vec::new(),
+        captured_at_ms: current_time_millis(),
+    })
+}
+
+fn current_time_millis() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+}
+
+fn collect_system_status() -> Result<SystemStatus, String> {
+    let mut status = query_windows_system()?;
+    let nvidia_gpus = query_nvidia_gpus();
+    if !nvidia_gpus.is_empty() {
+        status.gpus = nvidia_gpus;
+    }
+    status.captured_at_ms = current_time_millis();
+    Ok(status)
+}
+
+#[tauri::command]
+async fn get_system_status() -> Result<SystemStatus, String> {
+    tauri::async_runtime::spawn_blocking(collect_system_status)
+        .await
+        .map_err(|error| error.to_string())?
+}
 
 /// Read the installer language at startup (from install_lang.txt).
 /// Returns "zh" or "en", defaulting to "zh" on any error.
@@ -169,7 +420,6 @@ fn get_install_config() -> Result<InstallConfig, String> {
 // ===== Audio Conversion =====
 
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::Mutex;
 
 static IS_CONVERTING: AtomicBool = AtomicBool::new(false);
 static CANCEL_FLAG: AtomicBool = AtomicBool::new(false);
@@ -1688,6 +1938,7 @@ pub fn run() {
   tauri::Builder::default()
     .invoke_handler(tauri::generate_handler![
     open_url, get_documents_dir, get_download_dir, get_install_lang, get_install_config, set_storage_path,
+      get_system_status,
       convert_audio_batch, cancel_convert, open_path, reveal_in_folder,
       read_file_bytes, write_file_bytes, write_file_chunk, exists_path, get_file_size,
       trim_audio, probe_video, extract_audio,

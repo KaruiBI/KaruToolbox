@@ -72,6 +72,25 @@ void main(){
 }
 `;
 
+const prefersReducedMotion = () =>
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// Emergency switch: localStorage.setItem('karui-motion','off') then reload.
+const motionEnabled = () => {
+    try {
+        return window.localStorage.getItem('karui-motion') !== 'off';
+    } catch {
+        return true;
+    }
+};
+
+const hasCoveringLayer = () => {
+    if (typeof document === 'undefined') return false;
+    return document.querySelector('[id$="Overlay"].visible') !== null;
+};
+
 export function initDarkVeil(container, options = {}) {
   const {
     hueShift = 0,
@@ -80,15 +99,22 @@ export function initDarkVeil(container, options = {}) {
     speed = 1.6,
     scanlineFrequency = 5,
     warpAmount = 0,
-    resolutionScale = 1
+    resolutionScale = 1,
+    // This layer is a soft, blurred background: rendering it at 1x is visually
+    // indistinguishable from 2x but costs a quarter of the GPU work.
+    maxDpr = 1,
+    targetFps = 30
   } = options;
+
+  if (typeof document === 'undefined') return () => {};
+  if (prefersReducedMotion() || !motionEnabled()) return () => {};
 
   const canvas = document.createElement('canvas');
   canvas.className = 'darkveil-canvas';
   container.appendChild(canvas);
 
   const renderer = new Renderer({
-    dpr: Math.min(window.devicePixelRatio, 2),
+    dpr: Math.min(window.devicePixelRatio || 1, maxDpr),
     canvas
   });
 
@@ -121,21 +147,47 @@ export function initDarkVeil(container, options = {}) {
   window.addEventListener('resize', resize);
   resize();
 
-  const start = performance.now();
+  // Skip every unnecessary frame: the window is hidden, a full-screen tool page
+  // is covering this background, or the frame budget has not elapsed yet.
+  // The cover check is polled instead of observed so it cannot add its own cost.
+  let coverPaused = false;
+  let lastCoverCheck = 0;
+  const shouldPause = now => {
+    if (document.hidden === true) return true;
+    if (now - lastCoverCheck > 400) {
+      lastCoverCheck = now;
+      coverPaused = hasCoveringLayer();
+    }
+    return coverPaused;
+  };
+
+  const frameInterval = targetFps > 0 ? 1000 / targetFps : 0;
+  let elapsed = 0;
+  let lastFrame = performance.now();
   let frame = 0;
 
-  const loop = () => {
-    program.uniforms.uTime.value = ((performance.now() - start) / 1000) * speed;
+  const loop = now => {
+    frame = requestAnimationFrame(loop);
+    if (shouldPause(now)) {
+      lastFrame = now;
+      return;
+    }
+    const delta = now - lastFrame;
+    if (frameInterval > 0 && delta < frameInterval - 1) return;
+    lastFrame = now;
+    // Cap the step so a long stall never makes the animation jump.
+    elapsed += Math.min(Math.max(delta, 0), 100) * 0.001;
+
+    program.uniforms.uTime.value = elapsed * speed;
     program.uniforms.uHueShift.value = hueShift;
     program.uniforms.uNoise.value = noiseIntensity;
     program.uniforms.uScan.value = scanlineIntensity;
     program.uniforms.uScanFreq.value = scanlineFrequency;
     program.uniforms.uWarp.value = warpAmount;
     renderer.render({ scene: mesh });
-    frame = requestAnimationFrame(loop);
   };
 
-  loop();
+  frame = requestAnimationFrame(loop);
 
   return () => {
     cancelAnimationFrame(frame);

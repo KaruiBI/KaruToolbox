@@ -1,0 +1,59 @@
+{
+  "schema": "karui.project",
+  "schemaVersion": 1,
+  "projectId": "10000000-0000-4000-8000-000000000003",
+  "name": "字幕工程",
+  "createdAt": "2026-09-23T00:00:00.000Z",
+  "updatedAt": "2026-09-23T00:20:00.000Z",
+  "settings": {
+    "width": 1080,
+    "height": 1920,
+    "frameRate": { "num": 30, "den": 1 },
+    "sampleRate": 48000,
+    "colorSpace": "bt709",
+    "background": "#000000"
+  },
+  "assets": {},
+  "sequences": {
+    "20000000-0000-4000-8000-000000000003": {
+      "id": "20000000-0000-4000-8000-000000000003",
+      "name": "竖屏字幕",
+      "tracks": [
+        {
+          "id": "40000000-0000-4000-8000-000000000002",
+          "kind": "subtitle",
+          "name": "S1",
+          "locked": false,
+          "muted": false,
+          "items": [
+            {
+              "id": "50000000-0000-4000-8000-000000000004",
+              "type": "subtitle",
+              "timelineStart": 0,
+              "duration": 2000000,
+              "text": "欢迎使用 Karui 创作台",
+              "styleId": "default",
+              "speakerId": "speaker-1",
+              "words": []
+            },
+            {
+              "id": "50000000-0000-4000-8000-000000000005",
+              "type": "subtitle",
+              "timelineStart": 2200000,
+              "duration": 1800000,
+              "text": "工程、字幕和记忆都保存在本地",
+              "styleId": "default",
+              "words": []
+            }
+          ]
+        }
+      ],
+      "markers": [],
+      "durationTicks": 4000000
+    }
+  },
+  "activeSequenceId": "20000000-0000-4000-8000-000000000003",
+  "memoryRefs": ["brand.default-subtitle"],
+  "metadata": {}
+}
+

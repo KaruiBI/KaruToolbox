@@ -87,8 +87,11 @@ export function initPlasma(containerEl, options = {}) {
     direction = 'forward',
     scale = 1,
     opacity = 1,
-    mouseInteractive = false
+    mouseInteractive = false,
+    maxDpr = 1.25
   } = options;
+
+  if (typeof document === 'undefined') return () => {};
 
   const useCustomColor = color ? 1.0 : 0.0;
   const customColorRgb = color ? hexToRgb(color) : [1, 1, 1];
@@ -100,7 +103,7 @@ export function initPlasma(containerEl, options = {}) {
       webgl: 2,
       alpha: true,
       antialias: false,
-      dpr: Math.min(window.devicePixelRatio || 1, 2)
+      dpr: Math.min(window.devicePixelRatio || 1, maxDpr)
     });
   } catch {
     return null;
@@ -165,9 +168,21 @@ export function initPlasma(containerEl, options = {}) {
   let isVisible = true;
   const t0 = performance.now();
 
+  let virtualTime = 0;
+  let lastTs = t0;
+
   const loop = t => {
     if (contextLost || !isVisible) return;
-    let timeValue = (t - t0) * 0.001;
+    const step = Math.min(Math.max(t - lastTs, 0), 100) * 0.001;
+    lastTs = t;
+    // The tool window can stay "visible" while minimized or occluded; do not
+    // burn GPU on an animation nobody can see.
+    if (typeof document !== 'undefined' && document.hidden) {
+      raf = requestAnimationFrame(loop);
+      return;
+    }
+    virtualTime += step;
+    let timeValue = virtualTime;
     if (direction === 'pingpong') {
       const pingpongDuration = 10;
       const segmentTime = timeValue % pingpongDuration;

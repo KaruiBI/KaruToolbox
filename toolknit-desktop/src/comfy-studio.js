@@ -1,5 +1,6 @@
 import { createIcons, icons } from 'lucide';
 import { getLang, onLangChange, t } from './i18n.js';
+import { buildHardwareAdvice, formatBytes, percentText } from './features/system/hardware-advisor.js';
 import {
   IMAGE_STYLE_PRESETS,
   IMAGE_QUALITY_TAGS,
@@ -41,6 +42,17 @@ const elements = {
     stopEngine: document.getElementById('comfyStopEngine'),
     testEngine: document.getElementById('comfyTestEngine'),
     saveEngine: document.getElementById('comfySaveEngine'),
+    refreshHardware: document.getElementById('comfyRefreshHardware'),
+    hardwareState: document.getElementById('comfyHardwareState'),
+    hardwareCpu: document.getElementById('comfyHardwareCpu'),
+    hardwareCpuMeta: document.getElementById('comfyHardwareCpuMeta'),
+    hardwareMemory: document.getElementById('comfyHardwareMemory'),
+    hardwareMemoryMeta: document.getElementById('comfyHardwareMemoryMeta'),
+    hardwareGpu: document.getElementById('comfyHardwareGpu'),
+    hardwareGpuMeta: document.getElementById('comfyHardwareGpuMeta'),
+    hardwareVram: document.getElementById('comfyHardwareVram'),
+    hardwareVramMeta: document.getElementById('comfyHardwareVramMeta'),
+    hardwareAdvice: document.getElementById('comfyHardwareAdvice'),
     tutorialOverlay: document.getElementById('comfyTutorialOverlay'),
     tutorialTabs: document.getElementById('comfyTutorialTabs'),
     openTutorial: document.getElementById('comfyOpenTutorial'),
@@ -70,6 +82,11 @@ const elements = {
     studioOverlay: document.getElementById('comfyStudioOverlay'),
     studioBack: document.getElementById('comfyStudioBack'),
     connectionPill: document.getElementById('comfyConnectionPill'),
+    runtimeCpu: document.getElementById('comfyRuntimeCpu'),
+    runtimeMemory: document.getElementById('comfyRuntimeMemory'),
+    runtimeGpu: document.getElementById('comfyRuntimeGpu'),
+    runtimeVram: document.getElementById('comfyRuntimeVram'),
+    runtimeTemp: document.getElementById('comfyRuntimeTemp'),
     studioTabs: document.getElementById('comfyStudioTabs'),
     imagePanel: document.getElementById('comfyImagePanel'),
     workflowPanel: document.getElementById('comfyWorkflowPanel'),
@@ -137,6 +154,7 @@ const elements = {
     progress: document.getElementById('comfyProgress'),
     progressFill: document.getElementById('comfyProgressFill'),
     progressText: document.getElementById('comfyProgressText'),
+    progressTiming: document.getElementById('comfyProgressTiming'),
     resultEmpty: document.getElementById('comfyResultEmpty'),
     resultGrid: document.getElementById('comfyResultGrid'),
     errorCard: document.getElementById('comfyErrorCard'),
@@ -152,6 +170,9 @@ let videoEnvironment = null;
 let modelRefreshPromise = null;
 let lastRunSeed = -1;
 let videoNegativeTouched = false;
+let hardwarePollTimer = null;
+let hardwareRequestPending = false;
+let lastHardwareStatus = null;
 
 function loadConfig() {
     const fallback = {
@@ -422,11 +443,119 @@ async function refreshModelInventory () {
   return modelRefreshPromise;
 }
 
+function primaryGpu (status) {
+  const gpus = Array.isArray(status?.gpus) ? status.gpus : [];
+  return gpus.reduce((best, gpu) => {
+    return (gpu?.dedicatedMemoryBytes || 0) > (best?.dedicatedMemoryBytes || 0) ? gpu : best;
+  }, gpus[0] || null);
+}
+
+function setHardwareState (state, message) {
+  if (!elements.hardwareState) return;
+  elements.hardwareState.dataset.state = state;
+  const label = elements.hardwareState.querySelector('span:last-child');
+  if (label) label.textContent = message;
+}
+
+function renderHardwareAdvice (status) {
+  if (!elements.hardwareAdvice) return;
+  elements.hardwareAdvice.replaceChildren();
+  buildHardwareAdvice(status, getLang()).forEach((advice) => {
+    const card = document.createElement('article');
+    card.className = 'comfy-advice-item';
+    card.dataset.level = advice.level;
+    const title = document.createElement('strong');
+    const detail = document.createElement('span');
+    title.textContent = advice.title;
+    detail.textContent = advice.detail;
+    card.append(title, detail);
+    elements.hardwareAdvice.appendChild(card);
+  });
+}
+
+function renderHardwareStatus (status) {
+  const gpu = primaryGpu(status);
+  const cpu = status?.cpu || {};
+  const memory = status?.memory || {};
+  const coreText = t('comfyStudio.coreCount', { count: cpu.logicalCores || 0 });
+  elements.hardwareCpu.textContent = cpu.name || t('comfyStudio.unknownHardware');
+  elements.hardwareCpu.title = cpu.name || '';
+  elements.hardwareCpuMeta.textContent = `${coreText} · ${percentText(cpu.usagePercent)}`;
+  elements.hardwareMemory.textContent = formatBytes(memory.totalBytes);
+  elements.hardwareMemoryMeta.textContent = t('comfyStudio.memoryUsed', {
+    used: formatBytes(memory.usedBytes),
+    percent: percentText(memory.usagePercent),
+  });
+  elements.hardwareGpu.textContent = gpu?.name || t('comfyStudio.noGpuDetected');
+  elements.hardwareGpu.title = gpu?.name || '';
+  elements.hardwareGpuMeta.textContent = gpu
+    ? `${gpu.vendor || ''}${gpu.utilizationPercent != null ? ` · ${percentText(gpu.utilizationPercent)}` : ''}`
+    : t('comfyStudio.remoteRecommended');
+  elements.hardwareVram.textContent = formatBytes(gpu?.dedicatedMemoryBytes);
+  elements.hardwareVramMeta.textContent = gpu?.usedMemoryBytes != null
+    ? t('comfyStudio.vramUsed', { used: formatBytes(gpu.usedMemoryBytes) })
+    : t('comfyStudio.realtimeUnavailable');
+
+  elements.runtimeCpu.textContent = percentText(cpu.usagePercent);
+  elements.runtimeMemory.textContent = percentText(memory.usagePercent);
+  elements.runtimeGpu.textContent = percentText(gpu?.utilizationPercent);
+  elements.runtimeVram.textContent = gpu?.usedMemoryBytes != null && gpu?.dedicatedMemoryBytes
+    ? `${formatBytes(gpu.usedMemoryBytes, 0)} / ${formatBytes(gpu.dedicatedMemoryBytes, 0)}`
+    : formatBytes(gpu?.dedicatedMemoryBytes, 0);
+  elements.runtimeTemp.textContent = Number.isFinite(gpu?.temperatureCelsius)
+    ? `${Math.round(gpu.temperatureCelsius)}°C`
+    : '--';
+  renderHardwareAdvice(status);
+  setHardwareState('ready', t('comfyStudio.hardwareReady'));
+}
+
+async function refreshHardwareStatus () {
+  if (hardwareRequestPending) return lastHardwareStatus;
+  if (!isTauri) {
+    setHardwareState('error', t('comfyStudio.hardwareDesktopOnly'));
+    return null;
+  }
+  hardwareRequestPending = true;
+  elements.refreshHardware?.classList.add('is-loading');
+  try {
+    const status = await tauriInvoke('get_system_status');
+    lastHardwareStatus = status;
+    renderHardwareStatus(status);
+    return status;
+  } catch (error) {
+    setHardwareState('error', `${t('comfyStudio.hardwareFailed')}: ${error.message || error}`);
+    return null;
+  } finally {
+    hardwareRequestPending = false;
+    elements.refreshHardware?.classList.remove('is-loading');
+  }
+}
+
+function hardwarePanelVisible () {
+  return elements.engineOverlay?.classList.contains('visible') || elements.studioOverlay?.classList.contains('visible');
+}
+
+function startHardwareMonitor () {
+  refreshHardwareStatus();
+  if (!hardwarePollTimer) {
+    hardwarePollTimer = window.setInterval(() => {
+      if (document.visibilityState === 'visible' && hardwarePanelVisible()) refreshHardwareStatus();
+    }, 2500);
+  }
+}
+
+function stopHardwareMonitorIfHidden () {
+  if (hardwarePanelVisible() || !hardwarePollTimer) return;
+  window.clearInterval(hardwarePollTimer);
+  hardwarePollTimer = null;
+}
+
 function openEngineSettings () {
   engineConfig = loadConfig();
   writeConfigForm();
   elements.engineOverlay.classList.add('visible');
   elements.engineOverlay.setAttribute('aria-hidden', 'false');
+  startHardwareMonitor();
   syncEngineStatusFromConnection();
   testConnection().catch(() => {
     // testConnection updates the visible status with the connection error.
@@ -436,6 +565,7 @@ function openEngineSettings () {
 function closeEngineSettings () {
   elements.engineOverlay.classList.remove('visible');
   elements.engineOverlay.setAttribute('aria-hidden', 'true');
+  stopHardwareMonitorIfHidden();
 }
 
 function setTutorialMode (mode) {
@@ -548,6 +678,7 @@ async function openStudio (mode = 'image') {
   clearError();
   elements.studioOverlay.classList.add('visible');
   elements.studioOverlay.setAttribute('aria-hidden', 'false');
+  startHardwareMonitor();
   engineConfig = loadConfig();
   if (engineConfig.mode === 'local' && engineConfig.autoStart && isTauri) {
     try {
@@ -567,6 +698,7 @@ async function openStudio (mode = 'image') {
 function closeStudio () {
   elements.studioOverlay.classList.remove('visible');
   elements.studioOverlay.setAttribute('aria-hidden', 'true');
+  stopHardwareMonitorIfHidden();
 }
 
 async function browseComfyPath () {
@@ -1148,10 +1280,196 @@ function parseWorkflow () {
   }
 }
 
+// ===== Run progress: percentage, elapsed time and ETA =====
+const RUN_STATS_KEY = 'karui-comfy-run-stats-v1';
+// Sampling occupies this slice of the progress bar, so the phases around it
+// (queueing, decoding, downloading) always stay visible.
+const SAMPLE_PERCENT_FROM = 25;
+const SAMPLE_PERCENT_TO = 87;
+
+const runProgress = {
+  active: false,
+  startedAt: 0,
+  percent: 0,
+  phaseMessage: '',
+  stepValue: 0,
+  stepMax: 0,
+  samplingStartedAt: 0,
+  queuePosition: null,
+  ticker: null,
+  socket: null,
+};
+
+function formatClock (seconds) {
+  const total = Math.max(0, Math.round(seconds));
+  const minutes = Math.floor(total / 60);
+  return `${String(minutes).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+}
+
+function runSignature () {
+  const isVideo = studioMode === 'workflow';
+  const steps = isVideo
+    ? positiveInteger(elements.videoSteps, 20, 1, 100)
+    : positiveInteger(elements.steps, 24, 1, 150);
+  return `${isVideo ? 'video' : 'image'}-${steps}`;
+}
+
+function loadRunStats () {
+  try {
+    return JSON.parse(localStorage.getItem(RUN_STATS_KEY) || '{}');
+  } catch (_) {
+    return {};
+  }
+}
+
+function recordRunDuration (durationMs) {
+  if (!(durationMs > 2000)) return;
+  try {
+    const stats = loadRunStats();
+    const list = Array.isArray(stats[runSignature()]) ? stats[runSignature()] : [];
+    list.push(Math.round(durationMs));
+    stats[runSignature()] = list.slice(-5);
+    localStorage.setItem(RUN_STATS_KEY, JSON.stringify(stats));
+  } catch (_) { }
+}
+
+function estimateRemaining () {
+  // Real sampling speed is the best signal once ComfyUI reports step progress.
+  if (runProgress.samplingStartedAt && runProgress.stepValue > 0 && runProgress.stepMax > 0) {
+    const perStep = (Date.now() - runProgress.samplingStartedAt) / runProgress.stepValue;
+    const stepsLeft = Math.max(0, runProgress.stepMax - runProgress.stepValue);
+    const tail = studioMode === 'workflow' ? 10 : 4;
+    return (stepsLeft * perStep) / 1000 + tail;
+  }
+  // Otherwise fall back to the average duration of the last runs of this shape.
+  const history = loadRunStats()[runSignature()];
+  if (Array.isArray(history) && history.length) {
+    const average = history.reduce((sum, value) => sum + value, 0) / history.length / 1000;
+    return Math.max(1, average * (1 - runProgress.percent / 100));
+  }
+  return null;
+}
+
+function renderProgress () {
+  if (!elements.progressText) return;
+  const parts = [runProgress.phaseMessage || t('comfyStudio.preparing')];
+  if (runProgress.stepMax > 0) parts.push(`${runProgress.stepValue}/${runProgress.stepMax}`);
+  if (runProgress.queuePosition) parts.push(t('comfyStudio.queuePosition', { count: runProgress.queuePosition }));
+  elements.progressText.textContent = parts.join(' · ');
+
+  if (!elements.progressTiming) return;
+  const timing = [];
+  if (runProgress.startedAt) {
+    timing.push(t('comfyStudio.elapsedTime', { time: formatClock((Date.now() - runProgress.startedAt) / 1000) }));
+  }
+  if (runProgress.active) {
+    const remaining = estimateRemaining();
+    timing.push(remaining == null
+      ? t('comfyStudio.remainingUnknown')
+      : t('comfyStudio.remainingTime', { time: formatClock(remaining) }));
+  }
+  elements.progressTiming.hidden = !timing.length;
+  elements.progressTiming.textContent = timing.join(' · ');
+}
+
+function startProgressTicker () {
+  stopProgressTicker();
+  runProgress.ticker = window.setInterval(renderProgress, 1000);
+}
+
+function stopProgressTicker () {
+  if (runProgress.ticker) {
+    window.clearInterval(runProgress.ticker);
+    runProgress.ticker = null;
+  }
+}
+
+function setProgressFill (percent) {
+  runProgress.percent = Math.max(0, Math.min(100, percent));
+  if (elements.progressFill) elements.progressFill.style.width = `${Math.max(4, runProgress.percent)}%`;
+}
+
 function setProgress (percent, message) {
   elements.progress.hidden = false;
-  elements.progressFill.style.width = `${Math.max(4, Math.min(100, percent))}%`;
-  elements.progressText.textContent = message;
+  setProgressFill(percent);
+  if (message) runProgress.phaseMessage = message;
+  renderProgress();
+}
+
+function applyStepProgress () {
+  if (!runProgress.stepMax) return;
+  const ratio = Math.min(1, runProgress.stepValue / runProgress.stepMax);
+  setProgressFill(SAMPLE_PERCENT_FROM + ratio * (SAMPLE_PERCENT_TO - SAMPLE_PERCENT_FROM));
+}
+
+function closeProgressSocket () {
+  if (!runProgress.socket) return;
+  try {
+    runProgress.socket.close();
+  } catch (_) { }
+  runProgress.socket = null;
+}
+
+function handleProgressEvent (payload) {
+  const type = payload && payload.type;
+  const data = (payload && payload.data) || {};
+  // Ignore events that belong to somebody else's job.
+  if (data.prompt_id && activePromptId && data.prompt_id !== activePromptId) return;
+  if (type === 'progress') {
+    runProgress.stepValue = Number(data.value) || 0;
+    runProgress.stepMax = Number(data.max) || 0;
+    if (!runProgress.samplingStartedAt) runProgress.samplingStartedAt = Date.now();
+    runProgress.queuePosition = null;
+    runProgress.phaseMessage = studioMode === 'workflow'
+      ? t('comfyStudio.samplingVideo')
+      : t('comfyStudio.samplingImage');
+    applyStepProgress();
+    renderProgress();
+    return;
+  }
+  if (type === 'execution_start') {
+    runProgress.phaseMessage = t('comfyStudio.running');
+    renderProgress();
+    return;
+  }
+  if (type === 'executing' && data.node) {
+    if (!runProgress.stepMax && !runProgress.phaseMessage) runProgress.phaseMessage = t('comfyStudio.running');
+    renderProgress();
+  }
+}
+
+function openProgressSocket (clientId) {
+  closeProgressSocket();
+  const base = normalizeBaseUrl(engineConfig.serverUrl);
+  if (!base || typeof WebSocket !== 'function') return;
+  const url = `${base.replace(/^http/i, 'ws')}/ws?clientId=${encodeURIComponent(clientId)}`;
+  let socket;
+  try {
+    socket = new WebSocket(url);
+  } catch (_) {
+    return;
+  }
+  runProgress.socket = socket;
+  socket.addEventListener('message', (event) => {
+    if (typeof event.data !== 'string') return;
+    try {
+      handleProgressEvent(JSON.parse(event.data));
+    } catch (_) { }
+  });
+  // Live progress is a bonus: if the socket fails (CSP, remote host, firewall)
+  // the elapsed timer and the history based estimate still work.
+  socket.addEventListener('error', closeProgressSocket);
+};
+
+async function refreshQueuePosition (promptId) {
+  try {
+    const queue = await requestWithFallback(['/queue', '/api/queue']);
+    const running = Array.isArray(queue?.queue_running) ? queue.queue_running : [];
+    const pending = Array.isArray(queue?.queue_pending) ? queue.queue_pending : [];
+    const isRunning = running.some((entry) => Array.isArray(entry) && entry[1] === promptId);
+    const pendingIndex = pending.findIndex((entry) => Array.isArray(entry) && entry[1] === promptId);
+    runProgress.queuePosition = isRunning ? null : (pendingIndex >= 0 ? pendingIndex + 1 : null);
+  } catch (_) { }
 }
 
 function setRunning (running) {
@@ -1159,16 +1477,21 @@ function setRunning (running) {
   elements.cancelRun.hidden = !running;
 }
 
-async function queueWorkflow (workflow) {
-  const clientId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+async function queueWorkflow (workflow, clientId) {
   const payload = { prompt: workflow, client_id: clientId };
   return requestWithFallback(['/prompt', '/api/prompt'], { method: 'POST', body: payload });
 }
 
 async function waitForHistory (promptId) {
   const startedAt = Date.now();
+  let lastQueueCheck = 0;
   while (!runCancelled) {
     if (Date.now() - startedAt > 2 * 60 * 60 * 1000) throw new Error('ComfyUI task timed out');
+    // While the job is still queued, tell the user how many jobs are ahead.
+    if (!runProgress.samplingStartedAt && Date.now() - lastQueueCheck > 4000) {
+      lastQueueCheck = Date.now();
+      await refreshQueuePosition(promptId);
+    }
     try {
       const history = await requestWithFallback([
         `/history/${encodeURIComponent(promptId)}`,
@@ -1183,7 +1506,8 @@ async function waitForHistory (promptId) {
     } catch (error) {
       if (/execution failed/i.test(error.message || '')) throw error;
     }
-    setProgress(62, t('comfyStudio.running'));
+    // Live step progress from the engine wins over this coarse fallback.
+    if (!runProgress.stepMax && !runProgress.samplingStartedAt) setProgress(62, t('comfyStudio.running'));
     await new Promise((resolve) => setTimeout(resolve, 1400));
   }
   throw new Error(t('comfyStudio.cancelled'));
@@ -1354,6 +1678,15 @@ async function runWorkflow () {
   lastOutputDir = '';
   lastRunSeed = -1;
   const startedAt = Date.now();
+  runProgress.active = true;
+  runProgress.startedAt = startedAt;
+  runProgress.percent = 0;
+  runProgress.phaseMessage = '';
+  runProgress.stepValue = 0;
+  runProgress.stepMax = 0;
+  runProgress.samplingStartedAt = 0;
+  runProgress.queuePosition = null;
+  startProgressTicker();
   setRunning(true);
   setProgress(8, t('comfyStudio.preparing'));
   try {
@@ -1365,9 +1698,11 @@ async function runWorkflow () {
     const workflow = studioMode === 'image'
       ? buildImageWorkflow()
       : (useAdvancedWorkflow ? parseWorkflow() : buildWanVideoWorkflow());
-    const queued = await queueWorkflow(workflow);
+    const clientId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+    const queued = await queueWorkflow(workflow, clientId);
     activePromptId = queued?.prompt_id || queued?.promptId;
     if (!activePromptId) throw new Error('ComfyUI did not return a prompt_id');
+    openProgressSocket(clientId);
     setProgress(28, t('comfyStudio.queued'));
     const record = await waitForHistory(activePromptId);
     setProgress(88, t('comfyStudio.downloading'));
@@ -1379,11 +1714,16 @@ async function runWorkflow () {
       outputs.push(await materializeOutput(descriptors[index], index));
     }
     renderOutputs(outputs, buildRunMeta(useAdvancedWorkflow, startedAt));
+    recordRunDuration(Date.now() - startedAt);
     setProgress(100, t('comfyStudio.completed'));
   } catch (error) {
     showError(error);
     setProgress(100, runCancelled ? t('comfyStudio.cancelled') : (error.message || String(error)));
   } finally {
+    runProgress.active = false;
+    stopProgressTicker();
+    closeProgressSocket();
+    renderProgress();
     setRunning(false);
     activePromptId = '';
   }
@@ -1525,6 +1865,7 @@ elements.engineMode?.addEventListener('click', (event) => {
   updateEngineModeFields(button.dataset.mode);
 });
 elements.browsePath?.addEventListener('click', () => browseComfyPath().catch((error) => setEngineStatus('error', error.message || String(error))));
+elements.refreshHardware?.addEventListener('click', refreshHardwareStatus);
 elements.saveEngine?.addEventListener('click', () => {
   saveConfig();
   setEngineStatus('online', t('comfyStudio.saved'));
@@ -1621,6 +1962,7 @@ elements.promptLibrary?.addEventListener('toggle', () => {
 
 onLangChange(() => {
   if (elements.connectionPill.dataset.state !== 'online') setConnectionStatus('offline', t('comfyStudio.offline'));
+  if (lastHardwareStatus) renderHardwareStatus(lastHardwareStatus);
   buildPromptLab();
 });
 

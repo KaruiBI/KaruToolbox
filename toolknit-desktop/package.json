@@ -6,9 +6,14 @@
     "publisher": "dk-plus",
     "license": "MIT",
     "type": "module",
+    "engines": {
+        "node": ">=18.0.0"
+    },
     "scripts": {
         "dev": "vite",
         "build": "vite build",
+        "test:project-schema": "node tests/editor/project-schema.test.js",
+        "test:hardware-advisor": "node tests/system/hardware-advisor.test.js",
         "preview": "vite preview",
         "tauri": "tauri"
     },

@@ -1,0 +1,88 @@
+{
+  "schema": "karui.project",
+  "schemaVersion": 1,
+  "projectId": "10000000-0000-4000-8000-000000000002",
+  "name": "三片段工程",
+  "createdAt": "2026-09-23T00:00:00.000Z",
+  "updatedAt": "2026-09-23T00:10:00.000Z",
+  "settings": {
+    "width": 1920,
+    "height": 1080,
+    "frameRate": { "num": 30000, "den": 1001 },
+    "sampleRate": 48000,
+    "colorSpace": "bt709",
+    "background": "#000000"
+  },
+  "assets": {
+    "30000000-0000-4000-8000-000000000001": {
+      "id": "30000000-0000-4000-8000-000000000001",
+      "kind": "video",
+      "uri": "D:\\素材\\第一段.mp4",
+      "fingerprint": { "size": 1200000, "modifiedAt": 1789990000000 },
+      "probe": { "durationTicks": 5000000, "width": 1920, "height": 1080 }
+    },
+    "30000000-0000-4000-8000-000000000002": {
+      "id": "30000000-0000-4000-8000-000000000002",
+      "kind": "video",
+      "uri": "D:\\素材\\第二段.mp4"
+    },
+    "30000000-0000-4000-8000-000000000003": {
+      "id": "30000000-0000-4000-8000-000000000003",
+      "kind": "video",
+      "uri": "D:\\素材\\第三段.mp4"
+    }
+  },
+  "sequences": {
+    "20000000-0000-4000-8000-000000000002": {
+      "id": "20000000-0000-4000-8000-000000000002",
+      "name": "主时间线",
+      "tracks": [
+        {
+          "id": "40000000-0000-4000-8000-000000000001",
+          "kind": "video",
+          "name": "V1",
+          "locked": false,
+          "muted": false,
+          "items": [
+            {
+              "id": "50000000-0000-4000-8000-000000000001",
+              "type": "clip",
+              "assetId": "30000000-0000-4000-8000-000000000001",
+              "timelineStart": 0,
+              "duration": 5000000,
+              "sourceIn": 0,
+              "sourceDuration": 5000000,
+              "enabled": true
+            },
+            {
+              "id": "50000000-0000-4000-8000-000000000002",
+              "type": "clip",
+              "assetId": "30000000-0000-4000-8000-000000000002",
+              "timelineStart": 5000000,
+              "duration": 3000000,
+              "sourceIn": 1000000,
+              "sourceDuration": 3000000,
+              "enabled": true
+            },
+            {
+              "id": "50000000-0000-4000-8000-000000000003",
+              "type": "clip",
+              "assetId": "30000000-0000-4000-8000-000000000003",
+              "timelineStart": 8000000,
+              "duration": 4000000,
+              "sourceIn": 0,
+              "sourceDuration": 4000000,
+              "enabled": true
+            }
+          ]
+        }
+      ],
+      "markers": [],
+      "durationTicks": 12000000
+    }
+  },
+  "activeSequenceId": "20000000-0000-4000-8000-000000000002",
+  "memoryRefs": [],
+  "metadata": { "fixture": true }
+}
+
