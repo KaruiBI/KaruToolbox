@@ -41,7 +41,7 @@
         "copyright": "Copyright © 2026 dk-plus",
         "shortDescription": "Karui 工具箱桌面应用",
         "longDescription": "由 Mr·Fan 打造的 dk-plus 本地多功能桌面工具箱。",
-        "resources": ["resources/ffmpeg/ffmpeg.exe"],
+        "resources": ["resources/ffmpeg/ffmpeg.exe", "resources/ffmpeg/ffprobe.exe"],
         "icon": [
             "icons/icon.ico"
         ],

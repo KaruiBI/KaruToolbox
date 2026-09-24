@@ -12,7 +12,8 @@
     "scripts": {
         "dev": "vite",
         "build": "vite build",
-        "test:project-schema": "node tests/editor/project-schema.test.js",
+    "test:project-schema": "node tests/editor/project-schema.test.js",
+    "test:media-probe": "node tests/editor/media-probe.test.js",
         "test:hardware-advisor": "node tests/system/hardware-advisor.test.js",
         "preview": "vite preview",
         "tauri": "tauri"

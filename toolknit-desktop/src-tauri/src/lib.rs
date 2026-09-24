@@ -770,6 +770,16 @@ fn get_ffmpeg_path() -> Result<std::path::PathBuf, String> {
     Ok(path)
 }
 
+fn get_ffprobe_path() -> Result<std::path::PathBuf, String> {
+    let dir = get_ffmpeg_dir()?;
+    let exe_name = if cfg!(target_os = "windows") { "ffprobe.exe" } else { "ffprobe" };
+    let bundled = dir.join(exe_name);
+    if bundled.exists() {
+        return Ok(bundled);
+    }
+    Ok(std::path::PathBuf::from(exe_name))
+}
+
 #[tauri::command]
 fn check_ffmpeg() -> bool {
     get_ffmpeg_path().map(|p| p.exists()).unwrap_or(false)
@@ -1577,89 +1587,250 @@ struct AudioTrack {
     channels: String,
 }
 
+#[derive(serde::Serialize, Debug)]
+struct MediaProbeError {
+    code: String,
+    message: String,
+    path: String,
+    details: Option<String>,
+}
+
+impl MediaProbeError {
+    fn new(code: &str, message: impl Into<String>, path: &str, details: Option<String>) -> Self {
+        Self { code: code.to_string(), message: message.into(), path: path.to_string(), details }
+    }
+}
+
+#[derive(serde::Serialize, Clone)]
+struct RationalValue { num: u64, den: u64, value: f64 }
+
+#[derive(serde::Serialize)]
+struct MediaVideoStream {
+    index: usize,
+    codec: String,
+    profile: Option<String>,
+    width: u64,
+    height: u64,
+    frame_rate: Option<RationalValue>,
+    rotation: i64,
+    pixel_format: Option<String>,
+    color_space: Option<String>,
+    color_transfer: Option<String>,
+    color_primaries: Option<String>,
+}
+
+#[derive(serde::Serialize)]
+struct MediaAudioStream {
+    index: usize,
+    codec: String,
+    sample_rate: Option<u64>,
+    channels: Option<u64>,
+    channel_layout: Option<String>,
+    language: Option<String>,
+}
+
+#[derive(serde::Serialize)]
+struct MediaSubtitleStream { index: usize, codec: String, language: Option<String> }
+
+#[derive(serde::Serialize)]
+struct MediaFingerprint { size: u64, modified_ms: u128, fast_id: String }
+
+#[derive(serde::Serialize)]
+struct MediaProbeResult {
+    path: String,
+    kind: String,
+    container: Option<String>,
+    duration: Option<f64>,
+    size: u64,
+    bit_rate: Option<u64>,
+    start_time: Option<f64>,
+    video_streams: Vec<MediaVideoStream>,
+    audio_streams: Vec<MediaAudioStream>,
+    subtitle_streams: Vec<MediaSubtitleStream>,
+    fingerprint: MediaFingerprint,
+}
+
+fn value_string(value: &serde_json::Value, key: &str) -> Option<String> {
+    value.get(key).and_then(|entry| entry.as_str()).filter(|entry| !entry.is_empty()).map(str::to_string)
+}
+
+fn value_u64(value: &serde_json::Value, key: &str) -> Option<u64> {
+    value.get(key).and_then(|entry| entry.as_u64().or_else(|| entry.as_str()?.parse().ok()))
+}
+
+fn value_f64(value: &serde_json::Value, key: &str) -> Option<f64> {
+    value.get(key).and_then(|entry| entry.as_f64().or_else(|| entry.as_str()?.parse().ok())).filter(|entry| entry.is_finite())
+}
+
+fn parse_rational(value: Option<String>) -> Option<RationalValue> {
+    let (num, den) = value?.split_once('/').map(|(num, den)| (num.to_string(), den.to_string()))?;
+    let num = num.parse::<u64>().ok()?;
+    let den = den.parse::<u64>().ok()?;
+    if num == 0 || den == 0 { return None; }
+    Some(RationalValue { num, den, value: num as f64 / den as f64 })
+}
+
+fn stream_language(stream: &serde_json::Value) -> Option<String> {
+    stream.get("tags").and_then(|tags| value_string(tags, "language"))
+}
+
+fn stream_rotation(stream: &serde_json::Value) -> i64 {
+    if let Some(rotation) = stream.get("tags").and_then(|tags| value_string(tags, "rotate")).and_then(|value| value.parse().ok()) {
+        return rotation;
+    }
+    stream.get("side_data_list")
+        .and_then(|entry| entry.as_array())
+        .and_then(|entries| entries.iter().find_map(|entry| entry.get("rotation").and_then(|value| value.as_i64())))
+        .unwrap_or(0)
+}
+
+fn media_kind(path: &str, has_video: bool, has_audio: bool, has_subtitle: bool) -> String {
+    let extension = std::path::Path::new(path).extension().and_then(|value| value.to_str()).unwrap_or("").to_ascii_lowercase();
+    if matches!(extension.as_str(), "jpg" | "jpeg" | "png" | "webp" | "bmp" | "gif") { return "image".to_string(); }
+    if matches!(extension.as_str(), "srt" | "vtt" | "ass" | "ssa") { return "subtitle".to_string(); }
+    if has_video { "video".to_string() }
+    else if has_audio { "audio".to_string() }
+    else if has_subtitle { "subtitle".to_string() }
+    else { "unknown".to_string() }
+}
+
+fn parse_media_probe(input_path: &str, root: serde_json::Value, metadata: &std::fs::Metadata) -> Result<MediaProbeResult, MediaProbeError> {
+    let streams = root.get("streams").and_then(|entry| entry.as_array()).ok_or_else(|| {
+        MediaProbeError::new("probe.invalid_output", "ffprobe 未返回有效的媒体流", input_path, None)
+    })?;
+    let format = root.get("format").unwrap_or(&serde_json::Value::Null);
+    let mut video_streams = Vec::new();
+    let mut audio_streams = Vec::new();
+    let mut subtitle_streams = Vec::new();
+    for stream in streams {
+        let index = value_u64(stream, "index").unwrap_or(0) as usize;
+        let codec = value_string(stream, "codec_name").unwrap_or_else(|| "unknown".to_string());
+        match value_string(stream, "codec_type").as_deref() {
+            Some("video") => video_streams.push(MediaVideoStream {
+                index,
+                codec,
+                profile: value_string(stream, "profile"),
+                width: value_u64(stream, "width").unwrap_or(0),
+                height: value_u64(stream, "height").unwrap_or(0),
+                frame_rate: parse_rational(value_string(stream, "avg_frame_rate")).or_else(|| parse_rational(value_string(stream, "r_frame_rate"))),
+                rotation: stream_rotation(stream),
+                pixel_format: value_string(stream, "pix_fmt"),
+                color_space: value_string(stream, "color_space"),
+                color_transfer: value_string(stream, "color_transfer"),
+                color_primaries: value_string(stream, "color_primaries"),
+            }),
+            Some("audio") => audio_streams.push(MediaAudioStream {
+                index,
+                codec,
+                sample_rate: value_u64(stream, "sample_rate"),
+                channels: value_u64(stream, "channels"),
+                channel_layout: value_string(stream, "channel_layout"),
+                language: stream_language(stream),
+            }),
+            Some("subtitle") => subtitle_streams.push(MediaSubtitleStream { index, codec, language: stream_language(stream) }),
+            _ => {}
+        }
+    }
+    let modified_ms = metadata.modified().ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|duration| duration.as_millis()).unwrap_or(0);
+    let size = metadata.len();
+    let kind = media_kind(input_path, !video_streams.is_empty(), !audio_streams.is_empty(), !subtitle_streams.is_empty());
+    Ok(MediaProbeResult {
+        path: input_path.to_string(),
+        kind,
+        container: value_string(format, "format_name"),
+        duration: value_f64(format, "duration"),
+        size,
+        bit_rate: value_u64(format, "bit_rate"),
+        start_time: value_f64(format, "start_time"),
+        video_streams,
+        audio_streams,
+        subtitle_streams,
+        fingerprint: MediaFingerprint { size, modified_ms, fast_id: format!("{:x}-{:x}", size, modified_ms) },
+    })
+}
+
+#[tauri::command]
+async fn probe_media(input_path: String) -> Result<MediaProbeResult, MediaProbeError> {
+    let metadata = std::fs::metadata(&input_path).map_err(|error| {
+        MediaProbeError::new("probe.file_unavailable", "无法读取所选素材", &input_path, Some(error.to_string()))
+    })?;
+    if !metadata.is_file() {
+        return Err(MediaProbeError::new("probe.not_a_file", "所选路径不是文件", &input_path, None));
+    }
+    let ffprobe_path = get_ffprobe_path().map_err(|error| {
+        MediaProbeError::new("probe.ffprobe_missing", "未找到 ffprobe 媒体分析组件", &input_path, Some(error))
+    })?;
+    let mut command = tokio::process::Command::new(&ffprobe_path);
+    command.args(["-v", "error", "-print_format", "json", "-show_format", "-show_streams"])
+        .arg(&input_path)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    #[cfg(target_os = "windows")]
+    command.creation_flags(0x08000000);
+
+    let output = command.output().await.map_err(|error| {
+        MediaProbeError::new("probe.launch_failed", "无法启动媒体分析组件", &input_path, Some(error.to_string()))
+    })?;
+    if !output.status.success() {
+        return Err(MediaProbeError::new(
+            "probe.unsupported_or_corrupt",
+            "素材无法分析，文件可能损坏或格式暂不支持",
+            &input_path,
+            Some(String::from_utf8_lossy(&output.stderr).trim().to_string()),
+        ));
+    }
+    let root = serde_json::from_slice(&output.stdout).map_err(|error| {
+        MediaProbeError::new("probe.invalid_json", "媒体分析结果无法解析", &input_path, Some(error.to_string()))
+    })?;
+    parse_media_probe(&input_path, root, &metadata)
+}
+
 #[tauri::command]
 async fn probe_video(input_path: String) -> Result<ProbeResult, String> {
-    let ffmpeg_path = get_ffmpeg_path()?;
-    let mut cmd = tokio::process::Command::new(&ffmpeg_path);
-    cmd.arg("-i").arg(&input_path)
-       .arg("-hide_banner")
-       .stdin(std::process::Stdio::null())
-       .stdout(std::process::Stdio::piped())
-       .stderr(std::process::Stdio::piped());
+    let probe = probe_media(input_path).await.map_err(|error| error.message)?;
+    let audio_tracks = probe.audio_streams.into_iter().map(|stream| AudioTrack {
+        index: stream.index,
+        codec: stream.codec.to_uppercase(),
+        language: stream.language.unwrap_or_else(|| "default".to_string()),
+        channels: stream.channel_layout.or_else(|| stream.channels.map(|value| value.to_string())).unwrap_or_else(|| "unknown".to_string()),
+    }).collect();
+    Ok(ProbeResult { duration: probe.duration.unwrap_or(0.0), file_size: probe.size, audio_tracks })
+}
 
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000);
+#[cfg(test)]
+mod media_probe_tests {
+    use super::*;
+
+    #[test]
+    fn parses_video_audio_subtitle_and_rotation() {
+        let root = serde_json::json!({
+            "streams": [
+                { "index": 0, "codec_type": "video", "codec_name": "h264", "width": 1920,
+                  "height": 1080, "avg_frame_rate": "30000/1001", "pix_fmt": "yuv420p",
+                  "side_data_list": [{ "rotation": 90 }] },
+                { "index": 1, "codec_type": "audio", "codec_name": "aac", "sample_rate": "48000",
+                  "channels": 2, "channel_layout": "stereo", "tags": { "language": "zho" } },
+                { "index": 2, "codec_type": "subtitle", "codec_name": "subrip", "tags": { "language": "eng" } }
+            ],
+            "format": { "format_name": "mov,mp4", "duration": "12.5", "bit_rate": "1000000" }
+        });
+        let metadata = std::fs::metadata("Cargo.toml").expect("fixture metadata");
+        let result = parse_media_probe("D:/素材/测试.mp4", root, &metadata).expect("valid probe");
+        assert_eq!(result.kind, "video");
+        assert_eq!(result.video_streams[0].rotation, 90);
+        assert_eq!(result.video_streams[0].frame_rate.as_ref().unwrap().num, 30_000);
+        assert_eq!(result.audio_streams[0].language.as_deref(), Some("zho"));
+        assert_eq!(result.subtitle_streams[0].codec, "subrip");
+        assert_eq!(result.duration, Some(12.5));
     }
 
-    let output = cmd.spawn().map_err(|e| format!("Failed to run ffmpeg: {}", e))?
-        .wait_with_output().await.map_err(|e| format!("ffmpeg wait failed: {}", e))?;
-
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-
-    // Parse duration
-    let mut duration: f64 = 0.0;
-    for line in stderr.lines() {
-        if line.contains("Duration:") {
-            let start = line.find("Duration:").map(|i| i + 9);
-            if let Some(s) = start {
-                let dur_str = line[s..].trim();
-                let end = dur_str.find(',').unwrap_or(dur_str.len());
-                let parts: Vec<&str> = dur_str[..end].trim().split(':').collect();
-                if parts.len() == 3 {
-                    let h: f64 = parts[0].trim().parse().unwrap_or(0.0);
-                    let m: f64 = parts[1].trim().parse().unwrap_or(0.0);
-                    let s: f64 = parts[2].trim().parse().unwrap_or(0.0);
-                    duration = h * 3600.0 + m * 60.0 + s;
-                }
-            }
-            break;
-        }
+    #[test]
+    fn classifies_still_images_by_extension() {
+        assert_eq!(media_kind("D:/图片/参考图.png", true, false, false), "image");
     }
-
-    // Parse audio tracks
-    let mut audio_tracks = Vec::new();
-    for line in stderr.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with("Stream #") && trimmed.contains("Audio:") {
-            let index = audio_tracks.len();
-            let codec = if trimmed.contains("mp3") { "MP3" }
-                else if trimmed.contains("aac") { "AAC" }
-                else if trimmed.contains("ac3") { "AC3" }
-                else if trimmed.contains("vorbis") { "Vorbis" }
-                else if trimmed.contains("opus") { "Opus" }
-                else if trimmed.contains("flac") { "FLAC" }
-                else if trimmed.contains("pcm") { "PCM" }
-                else { "Unknown" };
-            let language = if trimmed.contains("(") {
-                let lang_start = trimmed.rfind("(").map(|i| i + 1);
-                let lang_end = trimmed.rfind(")").unwrap_or(trimmed.len());
-                if let Some(s) = lang_start {
-                    trimmed[s..lang_end].to_string()
-                } else { "default".to_string() }
-            } else { "default".to_string() };
-            let channels = if trimmed.contains("mono") { "mono" }
-                else if trimmed.contains("stereo") { "stereo" }
-                else if trimmed.contains("5.1") { "5.1" }
-                else if trimmed.contains("7.1") { "7.1" }
-                else { "unknown" };
-            audio_tracks.push(AudioTrack {
-                index,
-                codec: codec.to_string(),
-                language,
-                channels: channels.to_string(),
-            });
-        }
-    }
-
-    let file_size = std::fs::metadata(&input_path).map(|m| m.len()).unwrap_or(0);
-
-    Ok(ProbeResult {
-        duration,
-        file_size,
-        audio_tracks,
-    })
 }
 
 #[derive(serde::Serialize)]
@@ -1941,7 +2112,7 @@ pub fn run() {
       get_system_status,
       convert_audio_batch, cancel_convert, open_path, reveal_in_folder,
       read_file_bytes, write_file_bytes, write_file_chunk, exists_path, get_file_size,
-      trim_audio, probe_video, extract_audio,
+      trim_audio, probe_video, probe_media, extract_audio,
       check_ffmpeg,
       convert_image_batch,
       compress_image_batch,

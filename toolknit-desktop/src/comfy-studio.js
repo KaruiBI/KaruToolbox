@@ -1,6 +1,7 @@
 import { createIcons, icons } from 'lucide';
 import { getLang, onLangChange, t } from './i18n.js';
 import { buildHardwareAdvice, formatBytes, percentText } from './features/system/hardware-advisor.js';
+import './comfy-studio-ux.css';
 import {
   IMAGE_STYLE_PRESETS,
   IMAGE_QUALITY_TAGS,
@@ -90,6 +91,8 @@ const elements = {
     studioTabs: document.getElementById('comfyStudioTabs'),
     imagePanel: document.getElementById('comfyImagePanel'),
     workflowPanel: document.getElementById('comfyWorkflowPanel'),
+    workflowSwitch: document.getElementById('comfyWorkflowSwitch'),
+    videoComposer: document.getElementById('comfyVideoComposer'),
     videoStatus: document.getElementById('comfyVideoStatus'),
     videoInstallHelp: document.getElementById('comfyVideoInstallHelp'),
     videoModel: document.getElementById('comfyVideoModel'),
@@ -163,6 +166,7 @@ const elements = {
 
 let engineConfig = loadConfig();
 let studioMode = 'image';
+let workflowView = 'video';
 let activePromptId = '';
 let runCancelled = false;
 let lastOutputDir = '';
@@ -671,10 +675,35 @@ function setStudioMode (mode) {
   });
   elements.imagePanel.classList.toggle('active', studioMode === 'image');
   elements.workflowPanel.classList.toggle('active', studioMode === 'workflow');
+  syncRunLabel();
+}
+
+function syncRunLabel () {
+  const runLabel = elements.run?.querySelector('span');
+  if (!runLabel) return;
+  runLabel.textContent = studioMode === 'workflow' && workflowView === 'custom'
+    ? t('comfyStudio.runWorkflow')
+    : t('comfyStudio.generate');
+}
+
+function setWorkflowView (view) {
+  workflowView = view === 'custom' ? 'custom' : 'video';
+  elements.workflowSwitch?.querySelectorAll('button[data-workflow-view]').forEach((button) => {
+    const active = button.dataset.workflowView === workflowView;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-selected', String(active));
+  });
+  if (elements.videoComposer) elements.videoComposer.hidden = workflowView !== 'video';
+  if (elements.workflowAdvanced) {
+    elements.workflowAdvanced.hidden = workflowView !== 'custom';
+    elements.workflowAdvanced.open = workflowView === 'custom';
+  }
+  syncRunLabel();
 }
 
 async function openStudio (mode = 'image') {
   setStudioMode(mode === 'video' ? 'workflow' : mode);
+  if (mode === 'video') setWorkflowView('video');
   clearError();
   elements.studioOverlay.classList.add('visible');
   elements.studioOverlay.setAttribute('aria-hidden', 'false');
@@ -1692,9 +1721,7 @@ async function runWorkflow () {
   try {
     engineConfig = loadConfig();
     await testConnection({ updateCard: false });
-    const useAdvancedWorkflow = studioMode === 'workflow'
-      && elements.workflowAdvanced?.open
-      && elements.workflowJson.value.trim();
+    const useAdvancedWorkflow = studioMode === 'workflow' && workflowView === 'custom';
     const workflow = studioMode === 'image'
       ? buildImageWorkflow()
       : (useAdvancedWorkflow ? parseWorkflow() : buildWanVideoWorkflow());
@@ -1890,10 +1917,15 @@ elements.studioTabs?.addEventListener('click', (event) => {
   const button = event.target.closest('button[data-studio-mode]');
   if (button) setStudioMode(button.dataset.studioMode);
 });
+elements.workflowSwitch?.addEventListener('click', (event) => {
+  const button = event.target.closest('button[data-workflow-view]');
+  if (button) setWorkflowView(button.dataset.workflowView);
+});
 elements.importWorkflow?.addEventListener('click', () => elements.workflowFile.click());
 elements.workflowFile?.addEventListener('change', async () => {
   try {
     await importWorkflowFile(elements.workflowFile.files?.[0]);
+    setWorkflowView('custom');
     clearError();
   } catch (error) {
     showError(`${t('comfyStudio.invalidWorkflow')}: ${error.message}`);
@@ -1964,10 +1996,12 @@ onLangChange(() => {
   if (elements.connectionPill.dataset.state !== 'online') setConnectionStatus('offline', t('comfyStudio.offline'));
   if (lastHardwareStatus) renderHardwareStatus(lastHardwareStatus);
   buildPromptLab();
+  setWorkflowView(workflowView);
 });
 
 writeConfigForm();
 syncModelAccess();
 loadPromptDraft();
 buildPromptLab();
+setWorkflowView(workflowView);
 updateResultStats(0);

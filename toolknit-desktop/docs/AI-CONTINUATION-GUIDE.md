@@ -24,7 +24,7 @@ Karui 工具箱已经不只是文件格式转换工具。下一阶段要把它�
 - 桌面框架：Tauri 2.x。
 - 前端：原生 HTML、CSS、JavaScript，Vite 5 构建。
 - 后端：Rust，通过 Tauri command 提供文件系统、FFmpeg、ComfyUI 和系统能力。
-- 媒体处理：打包的 `ffmpeg.exe`。
+- 媒体处理：打包的 `ffmpeg.exe` 与 `ffprobe.exe`，前者执行转换，后者输出结构化媒体信息。
 - AI 文本：DeepSeek、OpenAI、通义千问、Kimi、自定义 OpenAI 兼容端点。
 - AI 图片/视频：本地或远程 ComfyUI，通过 HTTP API 提交工作流。
 - 文档与表格：pdf-lib、pdf.js、ExcelJS、Chart.js 等。
@@ -119,4 +119,3 @@ cargo check --manifest-path src-tauri\Cargo.toml
 3. 统一后台任务/渲染队列。
 
 底座完成后，片段合并、音频、字幕、参考图修图和智能 Skill 才能共享同一套工程，而不是继续成为彼此孤立的小工具。
-

@@ -37,10 +37,11 @@ Karui 创作工程、专业视频时间线、AI Skill、参考图修图和用户
 
 ## 桌面端运行
 
-桌面端需要安装 Node.js 20+、Rust stable，并将 `ffmpeg.exe` 放入：
+桌面端需要安装 Node.js 20+、Rust stable，并从同一份 FFmpeg 发行包中放入 `ffmpeg.exe` 与 `ffprobe.exe`：
 
 ```text
 toolknit-desktop/src-tauri/resources/ffmpeg/ffmpeg.exe
+toolknit-desktop/src-tauri/resources/ffmpeg/ffprobe.exe
 ```
 
 然后运行：

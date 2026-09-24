@@ -28,8 +28,9 @@ desktop.ini
 .vscode/
 .idea/
 
-# ffmpeg.exe(超过 GitHub 100MB 限制,用户自行下载放到 src-tauri/resources/ffmpeg/)
+# FFmpeg 工具超过 GitHub 100MB 限制，用户自行从同一发行包放到资源目录
 toolknit-desktop/src-tauri/resources/ffmpeg/ffmpeg.exe
+toolknit-desktop/src-tauri/resources/ffmpeg/ffprobe.exe
 
 # AI/ML 模型文件(体积过大,用户自行下载)
 models/
