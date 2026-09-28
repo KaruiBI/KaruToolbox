@@ -4650,6 +4650,13 @@
                             <input id="comfyAutoStart" type="checkbox">
                             <span data-i18n="comfyStudio.autoStart">打开 AI Studio 时自动启动本地引擎</span>
                         </label>
+                        <label class="comfy-check comfy-local-field">
+                            <input id="comfyLowVram" type="checkbox">
+                            <span>
+                                <strong data-i18n="comfyStudio.lowVramMode">低显存模式（手动）</strong>
+                                <small data-i18n="comfyStudio.lowVramHint">手动开启后，下次启动本地引擎将使用 --lowvram 与 FP16 VAE</small>
+                            </span>
+                        </label>
                     </div>
                 </details>
                 <div class="comfy-engine-status" id="comfyEngineStatus" data-state="idle">
@@ -4688,7 +4695,7 @@
                 </div>
                 <div class="comfy-tutorial-panel active" data-tutorial-panel="image">
                     <ol class="comfy-tutorial-steps">
-                        <li class="comfy-tutorial-download-step">
+                        <li class="comfy-tutorial-download-step" id="comfyWanGuide">
                             <div class="comfy-tutorial-step-icon"><i data-lucide="download"></i></div>
                             <div>
                                 <h3 data-i18n="comfyStudio.tutorialInstallTitle">下载本地生成引擎</h3>
@@ -4783,6 +4790,42 @@
                 </div>
                 <div class="comfy-tutorial-panel" data-tutorial-panel="video">
                     <ol class="comfy-tutorial-steps comfy-video-tutorial-steps">
+                        <li class="comfy-tutorial-download-step" id="comfyH3Guide" hidden>
+                            <div class="comfy-tutorial-step-icon"><i data-lucide="sparkles"></i></div>
+                            <div>
+                                <h3>配置 MiniMax H3 本地视频</h3>
+                                <p>Karui 会先检测系统、显卡、显存和内存，只推荐适合这台电脑的 FL2VA 模型，避免下载错误版本。</p>
+                                <div class="comfy-h3-recommendation" id="comfyH3Recommendation" data-state="checking">
+                                    <div class="comfy-h3-recommendation-head">
+                                        <span class="comfy-status-dot"></span>
+                                        <div><strong id="comfyH3RecommendationTitle">正在检测电脑配置…</strong><small id="comfyH3RecommendationHardware">请稍候</small></div>
+                                    </div>
+                                    <p id="comfyH3RecommendationReason">检测完成后，这里只会提供匹配版本的直接下载按钮。</p>
+                                    <code id="comfyH3RecommendationFile">--</code>
+                                    <div class="comfy-download-actions">
+                                        <button type="button" id="comfyH3RecommendedDownload" data-comfy-download="" disabled><i data-lucide="download"></i><span>直接下载推荐模型</span></button>
+                                        <button type="button" class="secondary" id="comfyH3OverrideDownload" data-comfy-download="" hidden><i data-lucide="triangle-alert"></i><span>改下 W4A8 轻量版</span></button>
+                                        <button type="button" class="secondary" id="comfyH3RefreshHardware"><i data-lucide="scan-search"></i><span>重新检测电脑</span></button>
+                                        <button type="button" class="secondary" data-comfy-folder="diffusion"><i data-lucide="folder-open"></i><span>打开存放目录</span></button>
+                                    </div>
+                                </div>
+                                <div class="comfy-download-actions">
+                                    <button type="button" id="comfyInstallH3Nodes"><i data-lucide="package-plus"></i><span>一键安装 H3 节点</span></button>
+                                    <button type="button" class="secondary" data-comfy-download="https://github.com/reventadirecta/MiniMax-H3-ComfyUI-8GB-VRAM"><i data-lucide="book-open"></i><span>查看 8GB 配置说明</span></button>
+                                </div>
+                                <p class="comfy-inline-install-status" id="comfyH3InstallStatus" hidden></p>
+                                <div class="comfy-video-model-folders">
+                                    <div><strong>Qwen3-VL 4B 编码器</strong><span>qwen3vl_4b_int8_convrot.safetensors · 5.37 GB</span><div class="comfy-model-download-actions"><button type="button" data-comfy-download="https://huggingface.co/Stick9190/qwen3vl_4b_int8_convrot/resolve/main/qwen3vl_4b_int8_convrot.safetensors?download=true"><i data-lucide="download"></i><span>直接下载</span></button><button type="button" class="secondary" data-comfy-folder="clip"><i data-lucide="folder-open"></i><span>打开存放目录</span></button></div></div>
+                                    <div><strong>H3 视频 VAE</strong><span>minimax_h3_video_vae_int8_convrot.safetensors · 3.17 GB</span><div class="comfy-model-download-actions"><button type="button" data-comfy-download="https://huggingface.co/Kijai/MiniMax-H3-experimental/resolve/main/minimax_h3_video_vae_int8_convrot.safetensors?download=true"><i data-lucide="download"></i><span>直接下载</span></button><button type="button" class="secondary" data-comfy-folder="vae"><i data-lucide="folder-open"></i><span>打开存放目录</span></button></div></div>
+                                    <div><strong>H3 4B ClipProj</strong><span>mmh3-4b-ClipProj-v3-mlp.safetensors · 503 MB</span><div class="comfy-model-download-actions"><button type="button" data-comfy-download="https://huggingface.co/NicoLab28/ClipProj-MiniMax-H3/resolve/main/mmh3-4b-ClipProj-v3-mlp.safetensors?download=true"><i data-lucide="download"></i><span>直接下载</span></button><button type="button" class="secondary" data-comfy-folder="clipProjection"><i data-lucide="folder-open"></i><span>打开存放目录</span></button></div></div>
+                                </div>
+                                <details class="comfy-h3-other-models">
+                                    <summary>高级用户：查看其他 FL2VA 版本</summary>
+                                    <p>W4A8 更小但兼容性要求更高，不会作为 Windows / RTX 50 系默认推荐。</p>
+                                    <button type="button" class="secondary" data-comfy-download="https://huggingface.co/starsfriday/MiniMax-H3-w4a8/resolve/main/minimax_h3_fl2va_pruned_w4a8_mixed.safetensors?download=true">下载 FL2VA W4A8（12.54 GB）</button>
+                                </details>
+                            </div>
+                        </li>
                         <li>
                             <div class="comfy-tutorial-step-icon"><i data-lucide="plug-zap"></i></div>
                             <div>
@@ -4790,7 +4833,7 @@
                                 <p data-i18n="comfyStudio.videoTutorialEngineDesc">先按图片教程完成 ComfyUI 安装与连接。已显示“引擎已连接”可直接进行下一步。</p>
                             </div>
                         </li>
-                        <li>
+                        <li id="comfyWanNodesGuide">
                             <div class="comfy-tutorial-step-icon"><i data-lucide="blocks"></i></div>
                             <div>
                                 <h3 data-i18n="comfyStudio.videoTutorialNodeTitle">安装视频合成节点</h3>
@@ -4810,7 +4853,7 @@
                                 <p class="comfy-inline-install-status" id="comfyVideoInstallStatus" hidden></p>
                             </div>
                         </li>
-                        <li class="comfy-tutorial-download-step">
+                        <li class="comfy-tutorial-download-step" id="comfyWanModelsGuide">
                             <div class="comfy-tutorial-step-icon"><i data-lucide="download"></i></div>
                             <div>
                                 <h3 data-i18n="comfyStudio.videoTutorialModelsTitle">下载 Wan 2.1 文生视频模型</h3>
@@ -5118,6 +5161,16 @@
                         </div>
                     </div>
 
+                    <div class="comfy-video-engine-picker" id="comfyVideoEnginePicker" role="radiogroup" aria-label="视频引擎">
+                        <button class="active" type="button" data-video-engine="wan" aria-checked="true" role="radio">
+                            <i data-lucide="film"></i><span><strong>Wan</strong><small data-i18n="comfyStudio.wanEngineDesc">通用本地视频模型</small></span>
+                        </button>
+                        <button type="button" data-video-engine="h3" aria-checked="false" role="radio">
+                            <i data-lucide="sparkles"></i><span><strong>MiniMax H3 本地</strong><small data-i18n="comfyStudio.h3EngineDesc">支持 8GB 显存 · 无需云 API</small></span>
+                            <em data-i18n="comfyStudio.recommended">推荐</em>
+                        </button>
+                    </div>
+
                     <div class="comfy-creator-step"><span>1</span><div><strong data-i18n="comfyStudio.creationSetup">准备生成环境</strong><small data-i18n="comfyStudio.creationSetupDesc">确认模型和视频节点可用</small></div></div>
                     <div class="comfy-video-status" id="comfyVideoStatus" data-state="checking">
                         <i data-lucide="scan-search"></i>
@@ -5139,6 +5192,10 @@
                                 <span data-i18n="comfyStudio.videoVae">视频 VAE</span>
                                 <select id="comfyVideoVae"><option value="" data-i18n="comfyStudio.videoDetectFirst">连接引擎后自动检测</option></select>
                             </label>
+                            <label class="comfy-field" id="comfyH3ProjectionField" hidden>
+                                <span>H3 ClipProj</span>
+                                <select id="comfyH3Projection"><option value="" data-i18n="comfyStudio.videoDetectFirst">连接引擎后自动检测</option></select>
+                            </label>
                         </div>
                     </details>
                     <div class="comfy-creator-step"><span>2</span><div><strong data-i18n="comfyStudio.promptAndMotion">描述画面与动作</strong><small data-i18n="comfyStudio.promptAndMotionDesc">先写主体，再补充动作、镜头和氛围</small></div></div>
@@ -5147,6 +5204,24 @@
                         <textarea id="comfyVideoPrompt" rows="4" data-i18n-placeholder="comfyStudio.videoPromptPlaceholder"
                             placeholder="描述视频中的主体、动作、镜头和氛围…"></textarea>
                     </div>
+                    <section class="comfy-h3-frame-controls" id="comfyH3FrameControls" hidden>
+                        <div class="comfy-lab-head">
+                            <span class="comfy-lab-title"><i data-lucide="images"></i><span data-i18n="comfyStudio.h3Keyframes">首尾帧（可选）</span></span>
+                            <small data-i18n="comfyStudio.h3KeyframesHint">不上传就是文生视频；上传后自动保持人物与构图</small>
+                        </div>
+                        <div class="comfy-h3-frame-grid">
+                            <label class="comfy-h3-frame-drop" id="comfyH3FirstFrameDrop">
+                                <input id="comfyH3FirstFrame" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+                                <i data-lucide="image-plus"></i><strong data-i18n="comfyStudio.h3FirstFrame">添加首帧</strong>
+                                <small id="comfyH3FirstFrameName" data-i18n="comfyStudio.h3FrameOptional">可选</small>
+                            </label>
+                            <label class="comfy-h3-frame-drop" id="comfyH3LastFrameDrop">
+                                <input id="comfyH3LastFrame" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+                                <i data-lucide="image-plus"></i><strong data-i18n="comfyStudio.h3LastFrame">添加尾帧</strong>
+                                <small id="comfyH3LastFrameName" data-i18n="comfyStudio.h3FrameOptional">可选</small>
+                            </label>
+                        </div>
+                    </section>
                     <section class="comfy-prompt-lab">
                         <div class="comfy-lab-head">
                             <span class="comfy-lab-title"><i data-lucide="clapperboard"></i><span

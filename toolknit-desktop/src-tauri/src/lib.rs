@@ -486,6 +486,45 @@ async fn comfy_http_json(
 }
 
 #[tauri::command]
+async fn comfy_upload_image(
+    url: String,
+    filename: String,
+    bytes: Vec<u8>,
+    api_key: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let parsed = validate_comfy_url(&url)?;
+    if bytes.is_empty() {
+        return Err("上传图片不能为空".to_string());
+    }
+    if bytes.len() > 30 * 1024 * 1024 {
+        return Err("首尾帧图片不能超过 30 MB".to_string());
+    }
+    let safe_name: String = filename
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-') { ch } else { '_' })
+        .collect();
+    let part = reqwest::multipart::Part::bytes(bytes)
+        .file_name(if safe_name.is_empty() { "karui_h3_frame.png".to_string() } else { safe_name });
+    let form = reqwest::multipart::Form::new()
+        .part("image", part)
+        .text("type", "input")
+        .text("overwrite", "true");
+    let client = comfy_client()?;
+    let mut request = client.post(parsed).multipart(form);
+    if let Some(key) = api_key.filter(|key| !key.trim().is_empty()) {
+        request = request.bearer_auth(key.trim());
+    }
+    let response = request.send().await.map_err(|e| format!("上传首尾帧失败: {}", e))?;
+    let status = response.status();
+    let text = response.text().await.map_err(|e| e.to_string())?;
+    if !status.is_success() {
+        let detail: String = text.chars().take(600).collect();
+        return Err(format!("ComfyUI 上传返回 {}: {}", status.as_u16(), detail));
+    }
+    serde_json::from_str(&text).map_err(|e| format!("ComfyUI 上传返回了无效 JSON: {}", e))
+}
+
+#[tauri::command]
 async fn comfy_download_output(
     app: tauri::AppHandle,
     url: String,
@@ -596,7 +635,68 @@ async fn install_comfy_video_helper(comfy_path: String, python_path: String) -> 
 }
 
 #[tauri::command]
-fn start_comfy_local(comfy_path: String, python_path: String, port: u16) -> Result<ComfyProcessInfo, String> {
+async fn install_comfy_h3_nodes(comfy_path: String) -> Result<String, String> {
+    let comfy_dir = std::path::PathBuf::from(comfy_path.trim());
+    if !comfy_dir.is_dir() || !comfy_dir.join("main.py").is_file() {
+        return Err("请选择包含 main.py 的 ComfyUI 目录".to_string());
+    }
+    let custom_nodes = comfy_dir.join("custom_nodes");
+    std::fs::create_dir_all(&custom_nodes).map_err(|e| format!("无法创建节点目录: {}", e))?;
+    let packages = [
+        (
+            "ComfyUI-ClipProj",
+            "https://github.com/nicolab28/ComfyUI-ClipProj/archive/c01ba8fb8f41b4f2094dbd0b185cdc238fb6134c.zip",
+        ),
+        (
+            "ComfyUI-Spectrum-MiniMax-H3",
+            "https://github.com/xmarre/ComfyUI-Spectrum-MiniMax-H3/archive/5161f0457bc8c52535212d6783eee73f439e1537.zip",
+        ),
+    ];
+    let client = comfy_client()?;
+    for (folder_name, download_url) in packages {
+        let target = custom_nodes.join(folder_name);
+        if target.join("__init__.py").is_file() {
+            continue;
+        }
+        if target.exists() {
+            return Err(format!("H3 节点目录已存在但不完整，请检查：{}", target.display()));
+        }
+        let response = client
+            .get(download_url)
+            .send()
+            .await
+            .map_err(|e| format!("下载 {} 失败: {}", folder_name, e))?;
+        if !response.status().is_success() {
+            return Err(format!("下载 {} 失败: HTTP {}", folder_name, response.status()));
+        }
+        let archive_bytes = response.bytes().await.map_err(|e| format!("读取 {} 安装包失败: {}", folder_name, e))?;
+        let reader = std::io::Cursor::new(archive_bytes);
+        let mut archive = zip::ZipArchive::new(reader).map_err(|e| format!("{} 安装包格式无效: {}", folder_name, e))?;
+        std::fs::create_dir_all(&target).map_err(|e| format!("无法创建 {}: {}", target.display(), e))?;
+        for index in 0..archive.len() {
+            let mut entry = archive.by_index(index).map_err(|e| e.to_string())?;
+            let enclosed = entry.enclosed_name().ok_or("H3 节点安装包包含不安全路径")?;
+            let relative: std::path::PathBuf = enclosed.components().skip(1).collect();
+            if relative.as_os_str().is_empty() {
+                continue;
+            }
+            let output = target.join(relative);
+            if entry.is_dir() {
+                std::fs::create_dir_all(&output).map_err(|e| e.to_string())?;
+            } else {
+                if let Some(parent) = output.parent() {
+                    std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+                }
+                let mut file = std::fs::File::create(&output).map_err(|e| e.to_string())?;
+                std::io::copy(&mut entry, &mut file).map_err(|e| e.to_string())?;
+            }
+        }
+    }
+    Ok("H3 低显存节点安装完成，请重启 ComfyUI 后下载四个模型文件".to_string())
+}
+
+#[tauri::command]
+fn start_comfy_local(comfy_path: String, python_path: String, port: u16, low_vram: Option<bool>) -> Result<ComfyProcessInfo, String> {
     if !(1024..=65535).contains(&port) {
         return Err("端口必须在 1024 到 65535 之间".to_string());
     }
@@ -653,6 +753,9 @@ fn start_comfy_local(comfy_path: String, python_path: String, port: u16) -> Resu
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::from(stdout))
         .stderr(std::process::Stdio::from(stderr));
+    if low_vram.unwrap_or(false) {
+        command.args(["--lowvram", "--fp16-vae"]);
+    }
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
@@ -2117,7 +2220,7 @@ pub fn run() {
       convert_image_batch,
       compress_image_batch,
       convert_video_batch,
-    comfy_http_json, comfy_download_output, install_comfy_video_helper,
+    comfy_http_json, comfy_upload_image, comfy_download_output, install_comfy_video_helper, install_comfy_h3_nodes,
       start_comfy_local, stop_comfy_local, comfy_process_status,
       set_tray_lang,
     ])

@@ -1,6 +1,8 @@
 import { createIcons, icons } from 'lucide';
 import { getLang, onLangChange, t } from './i18n.js';
 import { buildHardwareAdvice, formatBytes, percentText } from './features/system/hardware-advisor.js';
+import { buildH3LowVramWorkflow, detectH3LocalEnvironment } from './features/ai/h3-local-engine.js';
+import { recommendH3Model } from './features/ai/h3-model-advisor.js';
 import './comfy-studio-ux.css';
 import {
   IMAGE_STYLE_PRESETS,
@@ -23,6 +25,17 @@ import {
 const CONFIG_KEY = 'karui-comfy-engine-v1';
 const PROMPT_LIBRARY_KEY = 'karui-comfy-prompt-library-v1';
 const PROMPT_DRAFT_KEY = 'karui-comfy-prompt-draft-v1';
+const VIDEO_ENGINE_KEY = 'karui-video-engine-v1';
+const H3_SIZE_PRESETS = [
+  { id: 'h3-wide', label: { zh: '16:9 横屏', en: '16:9 Landscape' }, width: 608, height: 352 },
+  { id: 'h3-tall', label: { zh: '9:16 竖屏', en: '9:16 Portrait' }, width: 352, height: 608 },
+  { id: 'h3-wide-hq', label: { zh: '16:9 清晰', en: '16:9 Clear' }, width: 864, height: 480 },
+];
+const H3_QUALITY_PRESETS = [
+  { id: 'h3-draft', label: { zh: '快速试拍', en: 'Quick Test' }, hint: { zh: '608×352 · 3 秒', en: '608×352 · 3 seconds' }, steps: 20, cfg: 1, duration: 3, fps: 24, width: 608, height: 352 },
+  { id: 'h3-standard', label: { zh: '标准成片', en: 'Standard' }, hint: { zh: '608×352 · 5 秒', en: '608×352 · 5 seconds' }, steps: 20, cfg: 1, duration: 5, fps: 24, width: 608, height: 352 },
+  { id: 'h3-fine', label: { zh: '清晰成片', en: 'Clear' }, hint: { zh: '864×480 · 6 秒，较慢', en: '864×480 · 6 seconds, slower' }, steps: 20, cfg: 1, duration: 6, fps: 24, width: 864, height: 480 },
+];
 const isTauri = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__;
 
 const elements = {
@@ -37,6 +50,7 @@ const elements = {
     serverUrl: document.getElementById('comfyServerUrl'),
     accessToken: document.getElementById('comfyAccessToken'),
     autoStart: document.getElementById('comfyAutoStart'),
+    lowVram: document.getElementById('comfyLowVram'),
     browsePath: document.getElementById('comfyBrowsePath'),
     engineStatus: document.getElementById('comfyEngineStatus'),
     startEngine: document.getElementById('comfyStartEngine'),
@@ -71,6 +85,20 @@ const elements = {
     tutorialVaePath: document.getElementById('comfyTutorialVaePath'),
     installVideoHelper: document.getElementById('comfyInstallVideoHelper'),
     videoInstallStatus: document.getElementById('comfyVideoInstallStatus'),
+    installH3Nodes: document.getElementById('comfyInstallH3Nodes'),
+    h3InstallStatus: document.getElementById('comfyH3InstallStatus'),
+    h3Guide: document.getElementById('comfyH3Guide'),
+    h3Recommendation: document.getElementById('comfyH3Recommendation'),
+    h3RecommendationTitle: document.getElementById('comfyH3RecommendationTitle'),
+    h3RecommendationHardware: document.getElementById('comfyH3RecommendationHardware'),
+    h3RecommendationReason: document.getElementById('comfyH3RecommendationReason'),
+    h3RecommendationFile: document.getElementById('comfyH3RecommendationFile'),
+    h3RecommendedDownload: document.getElementById('comfyH3RecommendedDownload'),
+    h3OverrideDownload: document.getElementById('comfyH3OverrideDownload'),
+    h3RefreshHardware: document.getElementById('comfyH3RefreshHardware'),
+    wanGuide: document.getElementById('comfyWanGuide'),
+    wanNodesGuide: document.getElementById('comfyWanNodesGuide'),
+    wanModelsGuide: document.getElementById('comfyWanModelsGuide'),
     refreshVideoStatus: document.getElementById('comfyRefreshVideoStatus'),
     tutorialServiceStatus: document.getElementById('comfyTutorialServiceStatus'),
     modelOverlay: document.getElementById('comfyModelOverlay'),
@@ -93,11 +121,21 @@ const elements = {
     workflowPanel: document.getElementById('comfyWorkflowPanel'),
     workflowSwitch: document.getElementById('comfyWorkflowSwitch'),
     videoComposer: document.getElementById('comfyVideoComposer'),
+    videoEnginePicker: document.getElementById('comfyVideoEnginePicker'),
     videoStatus: document.getElementById('comfyVideoStatus'),
     videoInstallHelp: document.getElementById('comfyVideoInstallHelp'),
     videoModel: document.getElementById('comfyVideoModel'),
     videoClip: document.getElementById('comfyVideoClip'),
     videoVae: document.getElementById('comfyVideoVae'),
+    h3ProjectionField: document.getElementById('comfyH3ProjectionField'),
+    h3Projection: document.getElementById('comfyH3Projection'),
+    h3FrameControls: document.getElementById('comfyH3FrameControls'),
+    h3FirstFrame: document.getElementById('comfyH3FirstFrame'),
+    h3LastFrame: document.getElementById('comfyH3LastFrame'),
+    h3FirstFrameDrop: document.getElementById('comfyH3FirstFrameDrop'),
+    h3LastFrameDrop: document.getElementById('comfyH3LastFrameDrop'),
+    h3FirstFrameName: document.getElementById('comfyH3FirstFrameName'),
+    h3LastFrameName: document.getElementById('comfyH3LastFrameName'),
     videoPrompt: document.getElementById('comfyVideoPrompt'),
     videoWidth: document.getElementById('comfyVideoWidth'),
     videoHeight: document.getElementById('comfyVideoHeight'),
@@ -171,6 +209,9 @@ let activePromptId = '';
 let runCancelled = false;
 let lastOutputDir = '';
 let videoEnvironment = null;
+let wanEnvironment = null;
+let h3Environment = null;
+let videoEngine = localStorage.getItem(VIDEO_ENGINE_KEY) === 'h3' ? 'h3' : 'wan';
 let modelRefreshPromise = null;
 let lastRunSeed = -1;
 let videoNegativeTouched = false;
@@ -186,6 +227,7 @@ function loadConfig() {
         serverUrl: 'http://127.0.0.1:8188',
         accessToken: '',
         autoStart: false,
+        lowVram: false,
     };
     try {
         return {...fallback, ...JSON.parse(localStorage.getItem(CONFIG_KEY) || '{}') };
@@ -207,6 +249,7 @@ function readConfigForm() {
         serverUrl: normalizeBaseUrl(elements.serverUrl ? elements.serverUrl.value : 'http://127.0.0.1:8188'),
         accessToken: elements.accessToken ? elements.accessToken.value.trim() : '',
         autoStart: elements.autoStart ? elements.autoStart.checked : false,
+        lowVram: elements.lowVram ? elements.lowVram.checked : false,
     };
 }
 
@@ -216,6 +259,7 @@ function writeConfigForm(config = engineConfig) {
     elements.serverUrl.value = config.serverUrl || 'http://127.0.0.1:8188';
     elements.accessToken.value = config.accessToken || '';
     elements.autoStart.checked = !!config.autoStart;
+    if (elements.lowVram) elements.lowVram.checked = !!config.lowVram;
     elements.engineMode.querySelectorAll('button').forEach((button) => {
         button.classList.toggle('active', button.dataset.mode === config.mode);
     });
@@ -394,22 +438,75 @@ function detectVideoEnvironment (info) {
   const models = nodeOptions(info, 'UNETLoader', 'unet_name').filter((value) => /wan/i.test(value));
   const clips = nodeOptions(info, 'CLIPLoader', 'clip_name').filter((value) => /wan|umt5/i.test(value));
   const vaes = nodeOptions(info, 'VAELoader', 'vae_name').filter((value) => /wan/i.test(value));
-  fillSelect(elements.videoModel, models, [t('comfyStudio.videoNoModel')]);
-  fillSelect(elements.videoClip, clips, [t('comfyStudio.videoNoClip')]);
-  fillSelect(elements.videoVae, vaes, [t('comfyStudio.videoNoVae')]);
-
   const missing = [...missingNodes];
   if (!videoOutputMode) missing.push('CreateVideo + SaveVideo / VHS_VideoCombine');
   if (!models.length) missing.push(t('comfyStudio.videoMissingModel'));
   if (!clips.length) missing.push(t('comfyStudio.videoMissingClip'));
   if (!vaes.length) missing.push(t('comfyStudio.videoMissingVae'));
   const ready = missing.length === 0;
-  setVideoStatus(
-    ready ? 'ready' : 'missing',
-    ready ? t('comfyStudio.videoReady') : t('comfyStudio.videoMissing', { items: missing.join('、') }),
-  );
-  videoEnvironment = { ready, info, missing, videoOutputMode };
+  wanEnvironment = { ready, info, missing, videoOutputMode, models, clips, vaes };
+  h3Environment = { ...detectH3LocalEnvironment(info), info };
+  renderVideoEngineEnvironment();
   return videoEnvironment;
+}
+
+function renderVideoEngineEnvironment () {
+  const isH3 = videoEngine === 'h3';
+  videoEnvironment = isH3 ? h3Environment : wanEnvironment;
+  const environment = videoEnvironment;
+  const models = environment?.models || [];
+  const clips = environment?.clips || [];
+  const vaes = environment?.vaes || [];
+    fillSelect(elements.videoModel, models, [isH3 ? '未检测到 H3 FL2VA 模型' : t('comfyStudio.videoNoModel')]);
+  fillSelect(elements.videoClip, clips, [isH3 ? '未检测到 Qwen3-VL 4B' : t('comfyStudio.videoNoClip')]);
+  fillSelect(elements.videoVae, vaes, [isH3 ? '未检测到 H3 视频 VAE' : t('comfyStudio.videoNoVae')]);
+  if (isH3) {
+    fillSelect(elements.h3Projection, environment?.projections || [], ['未检测到 H3 ClipProj']);
+    if (environment?.selected?.model) elements.videoModel.value = environment.selected.model;
+    if (environment?.selected?.clip) elements.videoClip.value = environment.selected.clip;
+    if (environment?.selected?.vae) elements.videoVae.value = environment.selected.vae;
+    if (environment?.selected?.projection) elements.h3Projection.value = environment.selected.projection;
+  }
+  if (elements.h3ProjectionField) elements.h3ProjectionField.hidden = !isH3;
+  if (elements.h3FrameControls) elements.h3FrameControls.hidden = !isH3;
+  if (elements.videoFps) elements.videoFps.disabled = isH3;
+  if (elements.videoCfg) elements.videoCfg.disabled = isH3;
+  elements.videoEnginePicker?.querySelectorAll('button[data-video-engine]').forEach((button) => {
+    const active = button.dataset.videoEngine === videoEngine;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-checked', String(active));
+  });
+  if (!environment) {
+    setVideoStatus('checking', t('comfyStudio.videoChecking'));
+  } else {
+    setVideoStatus(
+      environment.ready ? 'ready' : 'missing',
+      environment.ready
+        ? (isH3 ? t('comfyStudio.h3Ready') : t('comfyStudio.videoReady'))
+        : t('comfyStudio.videoMissing', { items: environment.missing.join('、') }),
+    );
+  }
+}
+
+function setVideoEngine (engine, { applyDefaults = true } = {}) {
+  videoEngine = engine === 'h3' ? 'h3' : 'wan';
+  localStorage.setItem(VIDEO_ENGINE_KEY, videoEngine);
+  if (applyDefaults && videoEngine === 'h3') {
+    elements.videoWidth.value = 608;
+    elements.videoHeight.value = 352;
+    elements.videoDuration.value = 5;
+    elements.videoFps.value = 24;
+    elements.videoSteps.value = 20;
+    elements.videoCfg.value = 1;
+  }
+  renderVideoEngineEnvironment();
+  buildPromptLab();
+}
+
+function syncH3FrameFileUI (input, drop, name) {
+  const file = input?.files?.[0];
+  drop?.classList.toggle('has-file', !!file);
+  if (name) name.textContent = file?.name || t('comfyStudio.h3FrameOptional');
 }
 
 async function loadCapabilities () {
@@ -477,6 +574,45 @@ function renderHardwareAdvice (status) {
   });
 }
 
+function renderH3Recommendation (status) {
+  if (!elements.h3Recommendation) return;
+  const recommendation = recommendH3Model(status, getLang());
+  const gpu = primaryGpu(status);
+  const lang = getLang();
+  elements.h3Recommendation.dataset.state = recommendation.supported ? 'online' : 'error';
+  elements.h3RecommendationTitle.textContent = recommendation.summary;
+  elements.h3RecommendationHardware.textContent = [
+    status?.osName,
+    recommendation.gpuName,
+    formatBytes(gpu?.dedicatedMemoryBytes),
+    formatBytes(status?.memory?.totalBytes),
+  ].filter(Boolean).join(' · ');
+  elements.h3RecommendationReason.textContent = recommendation.lowVram && recommendation.supported
+    ? `${recommendation.reason} ${lang === 'zh' ? '建议在设置中手动开启低显存模式。' : 'Enable low VRAM mode manually in Settings.'}`
+    : recommendation.reason;
+  elements.h3RecommendationFile.textContent = recommendation.model
+    ? `${recommendation.model.filename} · ${recommendation.model.size}`
+    : (lang === 'zh' ? '未提供默认推荐，可参考下方说明选择版本' : 'No default recommendation; see the guide below');
+  elements.h3RecommendedDownload.disabled = !recommendation.model;
+  elements.h3RecommendedDownload.dataset.comfyDownload = recommendation.model?.url || '';
+  const override = elements.h3OverrideDownload;
+  if (override) {
+    const alternative = recommendation.overrideModel;
+    const showOverride = alternative && (!recommendation.supported || recommendation.lowVram);
+    override.hidden = !showOverride;
+    if (showOverride) {
+      override.dataset.comfyDownload = alternative.url;
+      override.title = `${alternative.filename} · ${alternative.size}`;
+      const label = override.querySelector('span');
+      if (label) {
+        label.textContent = recommendation.supported
+          ? (lang === 'zh' ? `改下 ${alternative.id.toUpperCase()} 版` : `Use ${alternative.id.toUpperCase()} instead`)
+          : (lang === 'zh' ? `仍要下载 ${alternative.id.toUpperCase()} 轻量版` : `Download ${alternative.id.toUpperCase()} anyway`);
+      }
+    }
+  }
+}
+
 function renderHardwareStatus (status) {
   const gpu = primaryGpu(status);
   const cpu = status?.cpu || {};
@@ -510,6 +646,7 @@ function renderHardwareStatus (status) {
     ? `${Math.round(gpu.temperatureCelsius)}°C`
     : '--';
   renderHardwareAdvice(status);
+  renderH3Recommendation(status);
   setHardwareState('ready', t('comfyStudio.hardwareReady'));
 }
 
@@ -614,6 +751,7 @@ function getTutorialFolderPath (folder) {
     diffusion: `${root}\\models\\diffusion_models`,
     clip: `${root}\\models\\text_encoders`,
     vae: `${root}\\models\\vae`,
+    clipProjection: `${root}\\models\\clip_projections`,
   };
   return folders[folder] || '';
 }
@@ -625,6 +763,12 @@ function openTutorial (requestedMode) {
     ? requestedMode
     : (studioMode === 'workflow' ? 'video' : 'image');
   setTutorialMode(mode);
+  if (elements.h3Guide) elements.h3Guide.hidden = videoEngine !== 'h3';
+  if (elements.wanGuide) elements.wanGuide.hidden = false;
+  if (elements.wanNodesGuide) elements.wanNodesGuide.hidden = videoEngine === 'h3';
+  if (elements.wanModelsGuide) elements.wanModelsGuide.hidden = videoEngine === 'h3';
+  if (lastHardwareStatus) renderH3Recommendation(lastHardwareStatus);
+  else refreshHardwareStatus();
   elements.tutorialOverlay.classList.add('visible');
   elements.tutorialOverlay.setAttribute('aria-hidden', 'false');
 }
@@ -755,6 +899,7 @@ async function startLocalEngine (testAfterStart = true) {
     comfyPath: config.localPath,
     pythonPath: config.pythonPath,
     port,
+    lowVram: !!config.lowVram,
   });
   if (!testAfterStart) return;
   let lastError;
@@ -996,14 +1141,16 @@ function buildPromptLab () {
   }
   renderTips();
   renderSizePresets(elements.imageRatio, IMAGE_SIZE_PRESETS, elements.width, elements.height);
-  renderSizePresets(elements.videoRatio, VIDEO_SIZE_PRESETS, elements.videoWidth, elements.videoHeight);
+  const videoSizes = videoEngine === 'h3' ? H3_SIZE_PRESETS : VIDEO_SIZE_PRESETS;
+  const videoQualities = videoEngine === 'h3' ? H3_QUALITY_PRESETS : VIDEO_QUALITY_PRESETS;
+  renderSizePresets(elements.videoRatio, videoSizes, elements.videoWidth, elements.videoHeight);
   renderQualityPresets(elements.imagePreset, IMAGE_QUALITY_PRESETS, (preset) => {
     elements.width.value = preset.width;
     elements.height.value = preset.height;
     elements.steps.value = preset.steps;
     elements.cfg.value = preset.cfg;
   });
-  renderQualityPresets(elements.videoPreset, VIDEO_QUALITY_PRESETS, (preset) => {
+  renderQualityPresets(elements.videoPreset, videoQualities, (preset) => {
     elements.videoWidth.value = preset.width;
     elements.videoHeight.value = preset.height;
     elements.videoDuration.value = preset.duration;
@@ -1118,12 +1265,14 @@ function syncParamUI () {
   const videoCfg = numberValue(elements.videoCfg, 6);
   const duration = numberValue(elements.videoDuration, 5);
   const fps = numberValue(elements.videoFps, 16);
+  const videoSizes = videoEngine === 'h3' ? H3_SIZE_PRESETS : VIDEO_SIZE_PRESETS;
+  const videoQualities = videoEngine === 'h3' ? H3_QUALITY_PRESETS : VIDEO_QUALITY_PRESETS;
   elements.videoRatio?.querySelectorAll('.comfy-chip').forEach((chip) => {
-    const preset = VIDEO_SIZE_PRESETS.find((item) => item.id === chip.dataset.sizeId);
+    const preset = videoSizes.find((item) => item.id === chip.dataset.sizeId);
     chip.classList.toggle('active', !!preset && preset.width === videoWidth && preset.height === videoHeight);
   });
   elements.videoPreset?.querySelectorAll('.comfy-preset-card').forEach((card) => {
-    const preset = VIDEO_QUALITY_PRESETS.find((item) => item.id === card.dataset.presetId);
+    const preset = videoQualities.find((item) => item.id === card.dataset.presetId);
     card.classList.toggle('active', !!preset
       && preset.steps === videoSteps && preset.cfg === videoCfg
       && preset.width === videoWidth && preset.height === videoHeight
@@ -1135,7 +1284,7 @@ function syncParamUI () {
       `${duration}${t('comfyStudio.summarySeconds')}`,
       `${fps}fps`,
       `${t('comfyStudio.steps')} ${videoSteps}`,
-      `CFG ${videoCfg}`,
+      videoEngine === 'h3' ? 'H3 FL2VA · 24fps' : `CFG ${videoCfg}`,
     ].join(' · ');
   }
 }
@@ -1291,6 +1440,71 @@ function buildWanVideoWorkflow () {
     } };
   }
   return workflow;
+}
+
+function buildH3VideoWorkflow (frames = {}) {
+  if (!h3Environment?.ready) {
+    throw new Error(t('comfyStudio.videoMissing', { items: h3Environment?.missing?.join('、') || t('comfyStudio.videoNotChecked') }));
+  }
+  const sourcePrompt = elements.videoPrompt.value.trim();
+  if (!sourcePrompt) throw new Error(t('comfyStudio.noPrompt'));
+  const avoid = elements.videoNegative?.value.trim();
+  const prompt = avoid ? `${sourcePrompt}\n\nAvoid: ${avoid}` : sourcePrompt;
+  const seedValue = Number(elements.videoSeed.value);
+  const seed = Number.isFinite(seedValue) && seedValue >= 0
+    ? Math.floor(seedValue)
+    : Math.floor(Math.random() * 0x7fffffff);
+  lastRunSeed = seed;
+  return buildH3LowVramWorkflow({
+    prompt,
+    width: Math.round(positiveInteger(elements.videoWidth, 608, 256, 960) / 32) * 32,
+    height: Math.round(positiveInteger(elements.videoHeight, 352, 256, 960) / 32) * 32,
+    duration: positiveInteger(elements.videoDuration, 5, 1, 15),
+    steps: positiveInteger(elements.videoSteps, 20, 1, 30),
+    seed,
+    model: elements.videoModel.value,
+    clip: elements.videoClip.value,
+    vae: elements.videoVae.value,
+    projection: elements.h3Projection.value,
+    firstFrame: frames.firstFrame,
+    lastFrame: frames.lastFrame,
+  });
+}
+
+async function uploadComfyImage (file, slot) {
+  if (!file) return '';
+  const cleanName = String(file.name || `${slot}.png`).replace(/[^a-zA-Z0-9._-]+/g, '_');
+  const filename = `karui_h3_${slot}_${Date.now()}_${cleanName}`;
+  const base = normalizeBaseUrl(engineConfig.serverUrl);
+  if (isTauri) {
+    const bytes = Array.from(new Uint8Array(await file.arrayBuffer()));
+    const result = await tauriInvoke('comfy_upload_image', {
+      url: `${base}/upload/image`, filename, bytes, apiKey: engineConfig.accessToken || null,
+    });
+    return result?.subfolder ? `${result.subfolder}/${result.name}` : (result?.name || filename);
+  }
+  const form = new FormData();
+  form.append('image', file, filename);
+  form.append('type', 'input');
+  form.append('overwrite', 'true');
+  const headers = {};
+  if (engineConfig.accessToken) headers.Authorization = `Bearer ${engineConfig.accessToken}`;
+  const response = await fetch(`${base}/upload/image`, { method: 'POST', headers, body: form });
+  if (!response.ok) throw new Error(`${t('comfyStudio.h3FrameUploadFailed')}: HTTP ${response.status}`);
+  const result = await response.json();
+  return result?.subfolder ? `${result.subfolder}/${result.name}` : (result?.name || filename);
+}
+
+async function prepareH3Frames () {
+  const first = elements.h3FirstFrame?.files?.[0];
+  const last = elements.h3LastFrame?.files?.[0];
+  if (!first && !last) return {};
+  setProgress(16, t('comfyStudio.h3UploadingFrames'));
+  const [firstFrame, lastFrame] = await Promise.all([
+    uploadComfyImage(first, 'first'),
+    uploadComfyImage(last, 'last'),
+  ]);
+  return { firstFrame, lastFrame };
 }
 
 function parseWorkflow () {
@@ -1681,6 +1895,7 @@ function buildRunMeta (useAdvancedWorkflow, startedAt) {
   if (useAdvancedWorkflow) chips.push(t('comfyStudio.summaryWorkflow'));
   else chips.push(isVideo ? t('comfyStudio.videoMode') : t('comfyStudio.imageMode'));
   if (isVideo) {
+    if (!useAdvancedWorkflow) chips.push(videoEngine === 'h3' ? 'MiniMax H3 Local' : 'Wan');
     chips.push(`${positiveInteger(elements.videoWidth, 832, 256, 1920)}×${positiveInteger(elements.videoHeight, 480, 256, 1920)}`);
     chips.push(`${positiveInteger(elements.videoDuration, 5, 1, 60)}${t('comfyStudio.summarySeconds')}`);
     chips.push(`${positiveInteger(elements.videoFps, 16, 1, 60)}fps`);
@@ -1722,9 +1937,12 @@ async function runWorkflow () {
     engineConfig = loadConfig();
     await testConnection({ updateCard: false });
     const useAdvancedWorkflow = studioMode === 'workflow' && workflowView === 'custom';
+    const h3Frames = studioMode === 'workflow' && workflowView === 'video' && videoEngine === 'h3'
+      ? await prepareH3Frames()
+      : {};
     const workflow = studioMode === 'image'
       ? buildImageWorkflow()
-      : (useAdvancedWorkflow ? parseWorkflow() : buildWanVideoWorkflow());
+      : (useAdvancedWorkflow ? parseWorkflow() : (videoEngine === 'h3' ? buildH3VideoWorkflow(h3Frames) : buildWanVideoWorkflow()));
     const clientId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
     const queued = await queueWorkflow(workflow, clientId);
     activePromptId = queued?.prompt_id || queued?.promptId;
@@ -1808,6 +2026,34 @@ async function installVideoHelper () {
   }
 }
 
+async function installH3Nodes () {
+  const config = loadConfig();
+  if (!isTauri || config.mode !== 'local' || !config.localPath) {
+    throw new Error(t('comfyStudio.videoInstallLocalOnly'));
+  }
+  elements.installH3Nodes.disabled = true;
+  elements.h3InstallStatus.hidden = false;
+  elements.h3InstallStatus.dataset.state = 'working';
+  elements.h3InstallStatus.textContent = '正在安装 H3 低显存节点…';
+  try {
+    const message = await tauriInvoke('install_comfy_h3_nodes', { comfyPath: config.localPath });
+    const processStatus = await tauriInvoke('comfy_process_status');
+    if (processStatus?.running) {
+      elements.h3InstallStatus.textContent = '正在重启 ComfyUI…';
+      await stopLocalEngine();
+      await startLocalEngine(true);
+      await loadCapabilities();
+    }
+    elements.h3InstallStatus.dataset.state = 'success';
+    elements.h3InstallStatus.textContent = message;
+  } catch (error) {
+    elements.h3InstallStatus.dataset.state = 'error';
+    elements.h3InstallStatus.textContent = error.message || String(error);
+  } finally {
+    elements.installH3Nodes.disabled = false;
+  }
+}
+
 async function refreshVideoServiceStatus () {
   elements.refreshVideoStatus.disabled = true;
   elements.tutorialServiceStatus.hidden = false;
@@ -1841,6 +2087,8 @@ elements.openTutorial?.addEventListener('click', openTutorial);
 elements.pageOpenTutorial?.addEventListener('click', openTutorial);
 elements.videoInstallHelp?.addEventListener('click', () => openTutorial('video'));
 elements.installVideoHelper?.addEventListener('click', installVideoHelper);
+elements.installH3Nodes?.addEventListener('click', () => installH3Nodes().catch(showError));
+elements.h3RefreshHardware?.addEventListener('click', refreshHardwareStatus);
 elements.refreshVideoStatus?.addEventListener('click', refreshVideoServiceStatus);
 elements.openModelCenter?.addEventListener('click', openModelCenter);
 elements.modelClose?.addEventListener('click', closeModelCenter);
@@ -1921,6 +2169,16 @@ elements.workflowSwitch?.addEventListener('click', (event) => {
   const button = event.target.closest('button[data-workflow-view]');
   if (button) setWorkflowView(button.dataset.workflowView);
 });
+elements.videoEnginePicker?.addEventListener('click', (event) => {
+  const button = event.target.closest('button[data-video-engine]');
+  if (button) setVideoEngine(button.dataset.videoEngine);
+});
+elements.h3FirstFrame?.addEventListener('change', () => {
+  syncH3FrameFileUI(elements.h3FirstFrame, elements.h3FirstFrameDrop, elements.h3FirstFrameName);
+});
+elements.h3LastFrame?.addEventListener('change', () => {
+  syncH3FrameFileUI(elements.h3LastFrame, elements.h3LastFrameDrop, elements.h3LastFrameName);
+});
 elements.importWorkflow?.addEventListener('click', () => elements.workflowFile.click());
 elements.workflowFile?.addEventListener('change', async () => {
   try {
@@ -1995,6 +2253,7 @@ elements.promptLibrary?.addEventListener('toggle', () => {
 onLangChange(() => {
   if (elements.connectionPill.dataset.state !== 'online') setConnectionStatus('offline', t('comfyStudio.offline'));
   if (lastHardwareStatus) renderHardwareStatus(lastHardwareStatus);
+  renderVideoEngineEnvironment();
   buildPromptLab();
   setWorkflowView(workflowView);
 });
@@ -2002,6 +2261,7 @@ onLangChange(() => {
 writeConfigForm();
 syncModelAccess();
 loadPromptDraft();
+renderVideoEngineEnvironment();
 buildPromptLab();
 setWorkflowView(workflowView);
 updateResultStats(0);
