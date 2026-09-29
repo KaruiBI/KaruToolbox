@@ -2250,6 +2250,24 @@ elements.promptLibrary?.addEventListener('toggle', () => {
   if (elements.promptLibrary.open) renderPromptLibrary();
 });
 
+// Called by the global application shutdown flow before the native process
+// exits. This prevents an active generation and its WebSocket from lingering.
+window.shutdownKaruiAiConnections = async function shutdownKaruiAiConnections () {
+  runCancelled = true;
+  runProgress.active = false;
+  stopProgressTicker();
+  closeProgressSocket();
+  if (hardwarePollTimer) {
+    window.clearInterval(hardwarePollTimer);
+    hardwarePollTimer = null;
+  }
+  if (activePromptId) {
+    try {
+      await requestWithFallback(['/interrupt', '/api/interrupt'], { method: 'POST', body: {} });
+    } catch (_) { }
+  }
+};
+
 onLangChange(() => {
   if (elements.connectionPill.dataset.state !== 'online') setConnectionStatus('offline', t('comfyStudio.offline'));
   if (lastHardwareStatus) renderHardwareStatus(lastHardwareStatus);

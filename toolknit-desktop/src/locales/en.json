@@ -1402,6 +1402,13 @@
         "errorOccurred": "Operation failed: {error}",
         "extractionFailed": "Extraction failed"
     },
+    "exitDialog": {
+        "title": "Close Karui Toolbox?",
+        "description": "Quit stops all background services and AI connections. Minimize to tray keeps them running.",
+        "toTray": "Minimize to tray",
+        "quit": "Quit completely",
+        "stopping": "Stopping services and quitting…"
+    },
     "lang": {
         "switch": "Switch language"
     },

@@ -47,6 +47,7 @@ if (darkveilBg) {
 
 const isTauri = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__;
 const appWindow = isTauri ? getCurrentWindow() : null;
+const activeAiRequestControllers = new Set();
 
 // A normal browser cannot launch Windows Explorer. Keep folder buttons from
 // failing silently in the web preview; the same buttons remain fully native
@@ -372,6 +373,55 @@ document.addEventListener('click', event => {
     }
 });
 
+const appExitOverlay = document.getElementById('appExitOverlay');
+const appExitToTray = document.getElementById('appExitToTray');
+const appExitNow = document.getElementById('appExitNow');
+const appExitCancel = document.getElementById('appExitCancel');
+let appIsQuitting = false;
+
+function showAppExitDialog() {
+    if (!appExitOverlay || appIsQuitting) return;
+    appExitOverlay.classList.add('visible');
+    appExitOverlay.setAttribute('aria-hidden', 'false');
+    requestAnimationFrame(() => appExitToTray ?.focus());
+}
+
+function hideAppExitDialog() {
+    if (!appExitOverlay || appIsQuitting) return;
+    appExitOverlay.classList.remove('visible');
+    appExitOverlay.setAttribute('aria-hidden', 'true');
+}
+
+async function quitApplicationCompletely() {
+    if (!isTauri || appIsQuitting) return;
+    appIsQuitting = true;
+    appExitOverlay ?.classList.add('is-quitting');
+    const label = appExitNow ?.querySelector('span');
+    if (label) label.textContent = t('exitDialog.stopping');
+    if (appExitNow) appExitNow.disabled = true;
+    if (appExitToTray) appExitToTray.disabled = true;
+    if (appExitCancel) appExitCancel.disabled = true;
+
+    // Abort cloud AI requests first, then give the local studio a brief chance
+    // to interrupt its current job and close its progress socket.
+    activeAiRequestControllers.forEach(controller => controller.abort());
+    const studioShutdown = typeof window.shutdownKaruiAiConnections === 'function'
+        ? window.shutdownKaruiAiConnections()
+        : Promise.resolve();
+    await Promise.race([
+        Promise.resolve(studioShutdown).catch(() => {}),
+        new Promise(resolve => window.setTimeout(resolve, 1200)),
+    ]);
+
+    try {
+        const { invoke } = await import('@tauri-apps/api/core');
+        await invoke('quit_application');
+    } catch (error) {
+        // app.exit() may terminate the webview before invoke resolves.
+        console.info('Application shutdown requested.', error);
+    }
+}
+
 if (isTauri && appWindow) {
     document.querySelectorAll('.ctrl-btn[data-action]').forEach(btn => {
         btn.addEventListener('mousedown', (e) => e.stopPropagation());
@@ -381,15 +431,36 @@ if (isTauri && appWindow) {
                 if (action === 'minimize') {
                     await appWindow.minimize();
                 } else if (action === 'maximize') {
-                    const isFullscreen = await appWindow.isFullscreen();
-                    await appWindow.setFullscreen(!isFullscreen);
+                    await appWindow.toggleMaximize();
                 } else if (action === 'close') {
-                    await appWindow.close();
+                    showAppExitDialog();
                 }
             } catch (e) {
                 console.error('Window control failed:', e);
             }
         });
+    });
+
+    appWindow.onCloseRequested((event) => {
+        if (!appIsQuitting) {
+            event.preventDefault();
+            showAppExitDialog();
+        }
+    });
+
+    appExitToTray ?.addEventListener('click', async() => {
+        hideAppExitDialog();
+        await appWindow.hide();
+    });
+    appExitNow ?.addEventListener('click', quitApplicationCompletely);
+    appExitCancel ?.addEventListener('click', hideAppExitDialog);
+    appExitOverlay ?.addEventListener('click', event => {
+        if (event.target === appExitOverlay) hideAppExitDialog();
+    });
+    document.addEventListener('keydown', event => {
+        if (event.key === 'Escape' && appExitOverlay ?.classList.contains('visible')) {
+            hideAppExitDialog();
+        }
     });
 }
 
@@ -8394,21 +8465,27 @@ async function callDeepSeek(messages, signal, maxTokens) {
         stream: false,
     };
     if (maxTokens) reqBody.max_tokens = maxTokens;
-    const res = await fetch(apiUrl, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify(reqBody),
-        signal,
-    });
-    if (!res.ok) {
-        const errText = await res.text().catch(() => '');
-        throw new Error(`${t('home.aiPolish.apiError')}: ${res.status} ${errText}`);
+    const controller = new AbortController();
+    activeAiRequestControllers.add(controller);
+    try {
+        const res = await fetch(apiUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify(reqBody),
+            signal: signal || controller.signal,
+        });
+        if (!res.ok) {
+            const errText = await res.text().catch(() => '');
+            throw new Error(`${t('home.aiPolish.apiError')}: ${res.status} ${errText}`);
+        }
+        const data = await res.json();
+        return data.choices ?.[0] ?.message ?.content || '';
+    } finally {
+        activeAiRequestControllers.delete(controller);
     }
-    const data = await res.json();
-    return data.choices ?.[0] ?.message ?.content || '';
 }
 
 function openAiPolishOverlay() {

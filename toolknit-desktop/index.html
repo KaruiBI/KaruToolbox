@@ -14,6 +14,34 @@
         <div class="tk-mascot-lg" aria-hidden="true"></div>
     </div>
     <div class="toast-container" id="toastContainer"></div>
+    <div class="global-window-controls" aria-label="Window controls">
+        <button class="ctrl-btn" data-i18n-title="common.minimize" title="最小化" data-action="minimize">
+            <i data-lucide="minus"></i>
+        </button>
+        <button class="ctrl-btn" data-i18n-title="common.maximize" title="最大化" data-action="maximize">
+            <i data-lucide="square"></i>
+        </button>
+        <button class="ctrl-btn close" data-i18n-title="common.close" title="关闭" data-action="close">
+            <i data-lucide="x"></i>
+        </button>
+    </div>
+
+    <div class="app-exit-overlay" id="appExitOverlay" aria-hidden="true">
+        <section class="app-exit-dialog" role="dialog" aria-modal="true" aria-labelledby="appExitTitle" aria-describedby="appExitDescription">
+            <div class="app-exit-icon"><i data-lucide="power"></i></div>
+            <h2 id="appExitTitle" data-i18n="exitDialog.title">关闭 Karui 工具箱？</h2>
+            <p id="appExitDescription" data-i18n="exitDialog.description">彻底退出会停止所有后台服务和 AI 连接；最小化到托盘可继续在后台运行。</p>
+            <div class="app-exit-actions">
+                <button class="app-exit-btn secondary" id="appExitToTray" type="button">
+                    <i data-lucide="panel-bottom-close"></i><span data-i18n="exitDialog.toTray">最小化到托盘</span>
+                </button>
+                <button class="app-exit-btn danger" id="appExitNow" type="button">
+                    <i data-lucide="power"></i><span data-i18n="exitDialog.quit">彻底退出程序</span>
+                </button>
+            </div>
+            <button class="app-exit-cancel" id="appExitCancel" type="button" data-i18n="common.cancel">取消</button>
+        </section>
+    </div>
 
     <div class="settings-overlay" id="settingsOverlay">
         <div class="settings-header">
@@ -3490,17 +3518,7 @@
         </div>
         <div class="divider"></div>
         <div class="main">
-            <div class="main-header">
-                <button class="ctrl-btn" data-i18n-title="common.minimize" title="最小化" data-action="minimize">
-          <i data-lucide="minus"></i>
-        </button>
-                <button class="ctrl-btn" data-i18n-title="common.maximize" title="最大化" data-action="maximize">
-          <i data-lucide="square"></i>
-        </button>
-                <button class="ctrl-btn close" data-i18n-title="common.close" title="关闭" data-action="close">
-          <i data-lucide="x"></i>
-        </button>
-            </div>
+            <div class="main-header" data-tauri-drag-region></div>
             <div class="main-content">
                 <div class="content-section active" data-category="home">
                     <div class="karui-home">

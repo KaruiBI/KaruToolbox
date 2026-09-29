@@ -769,9 +769,14 @@ fn start_comfy_local(comfy_path: String, python_path: String, port: u16, low_vra
 
 #[tauri::command]
 fn stop_comfy_local() -> Result<ComfyProcessInfo, String> {
+    terminate_comfy_process()?;
+    Ok(ComfyProcessInfo { running: false, pid: 0 })
+}
+
+fn terminate_comfy_process() -> Result<(), String> {
     let mut managed_child = COMFY_CHILD.lock().map_err(|_| "无法读取 ComfyUI 进程状态".to_string())?;
     let Some(mut child) = managed_child.take() else {
-        return Ok(ComfyProcessInfo { running: false, pid: 0 });
+        return Ok(());
     };
     let pid = child.id();
     #[cfg(target_os = "windows")]
@@ -791,7 +796,38 @@ fn stop_comfy_local() -> Result<ComfyProcessInfo, String> {
         child.kill().map_err(|e| e.to_string())?;
     }
     let _ = child.wait();
-    Ok(ComfyProcessInfo { running: false, pid: 0 })
+    Ok(())
+}
+
+fn terminate_managed_services() -> Result<(), String> {
+    CANCEL_FLAG.store(true, Ordering::SeqCst);
+    let conversion_pid = CURRENT_CHILD_ID.swap(0, Ordering::SeqCst);
+    if conversion_pid != 0 {
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            let _ = std::process::Command::new("taskkill")
+                .args(["/PID", &conversion_pid.to_string(), "/T", "/F"])
+                .creation_flags(0x08000000)
+                .status();
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = std::process::Command::new("kill")
+                .args(["-9", &conversion_pid.to_string()])
+                .status();
+        }
+    }
+    terminate_comfy_process()
+}
+
+#[tauri::command]
+fn quit_application(app: tauri::AppHandle) {
+    // Always stop processes started by Karui before terminating the WebView.
+    // Network requests and sockets owned by the WebView are closed by the OS;
+    // the frontend also aborts them before invoking this command.
+    let _ = terminate_managed_services();
+    app.exit(0);
 }
 
 #[tauri::command]
@@ -2209,7 +2245,7 @@ fn open_path(path: String) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-  tauri::Builder::default()
+  let app = tauri::Builder::default()
     .invoke_handler(tauri::generate_handler![
     open_url, get_documents_dir, get_download_dir, get_install_lang, get_install_config, set_storage_path,
       get_system_status,
@@ -2222,6 +2258,7 @@ pub fn run() {
       convert_video_batch,
     comfy_http_json, comfy_upload_image, comfy_download_output, install_comfy_video_helper, install_comfy_h3_nodes,
       start_comfy_local, stop_comfy_local, comfy_process_status,
+      quit_application,
       set_tray_lang,
     ])
     .plugin(tauri_plugin_dialog::init())
@@ -2250,6 +2287,7 @@ pub fn run() {
             }
           }
           "quit" => {
+            let _ = terminate_managed_services();
             app.exit(0);
           }
           _ => {}
@@ -2273,6 +2311,12 @@ pub fn run() {
 
       Ok(())
     })
-    .run(tauri::generate_context!())
-    .expect("error while running tauri application");
+    .build(tauri::generate_context!())
+    .expect("error while building tauri application");
+
+  app.run(|_app_handle, event| {
+    if matches!(event, tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit) {
+      let _ = terminate_managed_services();
+    }
+  });
 }

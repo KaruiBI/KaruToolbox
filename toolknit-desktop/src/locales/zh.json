@@ -1402,6 +1402,13 @@
         "errorOccurred": "操作失败：{error}",
         "extractionFailed": "提取失败"
     },
+    "exitDialog": {
+        "title": "关闭 Karui 工具箱？",
+        "description": "彻底退出会停止所有后台服务和 AI 连接；最小化到托盘可继续在后台运行。",
+        "toTray": "最小化到托盘",
+        "quit": "彻底退出程序",
+        "stopping": "正在停止服务并退出…"
+    },
     "lang": {
         "switch": "切换语言"
     },
