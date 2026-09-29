@@ -2,7 +2,7 @@ import { createIcons, icons } from 'lucide';
 import { getLang, onLangChange, t } from './i18n.js';
 import { buildHardwareAdvice, formatBytes, percentText } from './features/system/hardware-advisor.js';
 import { buildH3LowVramWorkflow, detectH3LocalEnvironment } from './features/ai/h3-local-engine.js';
-import { recommendH3Model } from './features/ai/h3-model-advisor.js';
+import { H3_MODEL_DOWNLOADS, recommendH3Model } from './features/ai/h3-model-advisor.js';
 import './comfy-studio-ux.css';
 import {
   IMAGE_STYLE_PRESETS,
@@ -87,6 +87,12 @@ const elements = {
     videoInstallStatus: document.getElementById('comfyVideoInstallStatus'),
     installH3Nodes: document.getElementById('comfyInstallH3Nodes'),
     h3InstallStatus: document.getElementById('comfyH3InstallStatus'),
+    modelDownloadPanel: document.getElementById('modelDownloadPanel'),
+    modelDownloadFilename: document.getElementById('modelDownloadFilename'),
+    modelDownloadFill: document.getElementById('modelDownloadFill'),
+    modelDownloadDetail: document.getElementById('modelDownloadDetail'),
+    modelDownloadCancel: document.getElementById('modelDownloadCancel'),
+    modelDownloadHide: document.getElementById('modelDownloadHide'),
     h3Guide: document.getElementById('comfyH3Guide'),
     h3Recommendation: document.getElementById('comfyH3Recommendation'),
     h3RecommendationTitle: document.getElementById('comfyH3RecommendationTitle'),
@@ -218,6 +224,7 @@ let videoNegativeTouched = false;
 let hardwarePollTimer = null;
 let hardwareRequestPending = false;
 let lastHardwareStatus = null;
+let modelDownloadActive = false;
 
 function loadConfig() {
     const fallback = {
@@ -331,6 +338,98 @@ async function openDownloadUrl(url) {
         return;
     }
     window.open(url, '_blank', 'noopener,noreferrer');
+}
+
+function modelDownloadText(zh, en) {
+  return getLang() === 'zh' ? zh : en;
+}
+
+function setModelDownloadStatus(state, filename, message, percent = 0, showInline = false) {
+  if (elements.modelDownloadPanel) {
+    elements.modelDownloadPanel.hidden = false;
+    elements.modelDownloadPanel.dataset.state = state;
+  }
+  if (elements.modelDownloadFilename) elements.modelDownloadFilename.textContent = filename || modelDownloadText('模型下载', 'Model download');
+  if (elements.modelDownloadDetail) elements.modelDownloadDetail.textContent = message;
+  if (elements.modelDownloadFill) elements.modelDownloadFill.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+  if (elements.modelDownloadCancel) elements.modelDownloadCancel.hidden = state !== 'working';
+  if (showInline && elements.h3InstallStatus) {
+    elements.h3InstallStatus.hidden = false;
+    elements.h3InstallStatus.dataset.state = state;
+    elements.h3InstallStatus.textContent = message;
+  }
+}
+
+async function downloadModelInApp(button) {
+  if (!isTauri) {
+    await openDownloadUrl(button.dataset.comfyDownload);
+    return;
+  }
+  if (modelDownloadActive) return;
+
+  const config = loadConfig();
+  const modelId = button.dataset.h3Model;
+  const model = H3_MODEL_DOWNLOADS[modelId];
+  const filename = button.dataset.comfyFile || model?.filename || '';
+  const folder = button.dataset.comfyFolder || (model ? 'diffusion' : '');
+  const url = button.dataset.comfyDownload || model?.url || '';
+  const showInline = !!button.closest('#comfyH3Guide');
+  if (config.mode !== 'local' || !config.localPath) {
+    setModelDownloadStatus('error', filename, modelDownloadText(
+      '请先在“设置 → 本地引擎”中选择包含 main.py 的 ComfyUI 文件夹。',
+      'Choose the ComfyUI folder containing main.py in Settings → Local Engine first.',
+    ), 0, showInline);
+    return;
+  }
+  if (!filename || !folder || !url) {
+    setModelDownloadStatus('error', filename, modelDownloadText('无法识别模型下载信息。', 'Unknown model download metadata.'), 0, showInline);
+    return;
+  }
+
+  modelDownloadActive = true;
+  const buttons = [...document.querySelectorAll('[data-comfy-file], [data-h3-model]')];
+  buttons.forEach(item => { item.disabled = true; });
+  setModelDownloadStatus('working', filename, modelDownloadText(
+    `准备下载，已下载的部分会自动续传…`,
+    `Preparing download; any partial file will resume automatically…`,
+  ), 0, showInline);
+
+  let unlisten = null;
+  try {
+    const { listen } = await import('@tauri-apps/api/event');
+    unlisten = await listen('comfy-model-download-progress', event => {
+      const progress = event.payload || {};
+      const downloaded = Number(progress.downloadedBytes) || 0;
+      const total = Number(progress.totalBytes) || 0;
+      const percent = total > 0 ? Math.min(100, downloaded / total * 100) : 0;
+      const progressText = total > 0
+        ? `${formatBytes(downloaded)} / ${formatBytes(total)} · ${percent.toFixed(1)}%`
+        : formatBytes(downloaded);
+      setModelDownloadStatus('working', filename, modelDownloadText(
+        `${progressText}（可暂停，稍后继续）`,
+        `${progressText} (you can pause and resume later)`,
+      ), percent, showInline);
+    });
+    const savedPath = await tauriInvoke('download_comfy_model', {
+      comfyPath: config.localPath,
+      url,
+      filename,
+      folder,
+    });
+    setModelDownloadStatus('success', filename, modelDownloadText(
+      `模型下载完成，已保存到：${savedPath}`,
+      `Model downloaded to: ${savedPath}`,
+    ), 100, showInline);
+    await renderVideoEngineEnvironment();
+    if (folder === 'checkpoints') await refreshModelInventory();
+  } catch (error) {
+    setModelDownloadStatus('error', filename, error?.message || String(error), 0, showInline);
+  } finally {
+    if (unlisten) unlisten();
+    modelDownloadActive = false;
+    buttons.forEach(item => { item.disabled = false; });
+    if (lastHardwareStatus) renderH3Recommendation(lastHardwareStatus);
+  }
 }
 
 async function engineRequest(path, { method = 'GET', body } = {}) {
@@ -595,6 +694,9 @@ function renderH3Recommendation (status) {
     : (lang === 'zh' ? '未提供默认推荐，可参考下方说明选择版本' : 'No default recommendation; see the guide below');
   elements.h3RecommendedDownload.disabled = !recommendation.model;
   elements.h3RecommendedDownload.dataset.comfyDownload = recommendation.model?.url || '';
+  elements.h3RecommendedDownload.dataset.h3Model = recommendation.model?.id || '';
+  elements.h3RecommendedDownload.dataset.comfyFile = recommendation.model?.filename || '';
+  elements.h3RecommendedDownload.dataset.comfyFolder = 'diffusion';
   const override = elements.h3OverrideDownload;
   if (override) {
     const alternative = recommendation.overrideModel;
@@ -602,6 +704,9 @@ function renderH3Recommendation (status) {
     override.hidden = !showOverride;
     if (showOverride) {
       override.dataset.comfyDownload = alternative.url;
+      override.dataset.h3Model = alternative.id;
+      override.dataset.comfyFile = alternative.filename;
+      override.dataset.comfyFolder = 'diffusion';
       override.title = `${alternative.filename} · ${alternative.size}`;
       const label = override.querySelector('span');
       if (label) {
@@ -2105,10 +2210,27 @@ window.addEventListener('focus', () => {
 });
 document.querySelectorAll('[data-comfy-download]').forEach((button) => {
   button.addEventListener('click', () => {
+    if (button.dataset.comfyFile || button.dataset.h3Model) {
+      downloadModelInApp(button).catch((error) => {
+        setModelDownloadStatus('error', button.dataset.comfyFile || '', error?.message || String(error));
+      });
+      return;
+    }
     openDownloadUrl(button.dataset.comfyDownload).catch((error) => {
       console.error('Open ComfyUI download failed:', error);
     });
   });
+});
+elements.modelDownloadCancel?.addEventListener('click', async () => {
+  if (!modelDownloadActive) return;
+  elements.modelDownloadCancel.disabled = true;
+  elements.modelDownloadCancel.textContent = modelDownloadText('正在暂停…', 'Pausing…');
+  await tauriInvoke('cancel_comfy_model_download');
+  elements.modelDownloadCancel.disabled = false;
+  elements.modelDownloadCancel.textContent = modelDownloadText('暂停下载', 'Pause download');
+});
+elements.modelDownloadHide?.addEventListener('click', () => {
+  if (elements.modelDownloadPanel) elements.modelDownloadPanel.hidden = true;
 });
 document.querySelectorAll('[data-comfy-folder]').forEach((button) => {
   button.addEventListener('click', async () => {

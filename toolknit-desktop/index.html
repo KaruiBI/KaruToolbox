@@ -14,6 +14,15 @@
         <div class="tk-mascot-lg" aria-hidden="true"></div>
     </div>
     <div class="toast-container" id="toastContainer"></div>
+    <aside class="model-download-panel" id="modelDownloadPanel" data-state="idle" hidden aria-live="polite">
+        <div class="model-download-panel-head">
+            <div><span>MODEL DOWNLOAD</span><strong id="modelDownloadFilename">模型下载</strong></div>
+            <button id="modelDownloadHide" type="button" aria-label="隐藏下载面板"><i data-lucide="minus"></i></button>
+        </div>
+        <div class="model-download-track"><span id="modelDownloadFill"></span></div>
+        <p id="modelDownloadDetail">正在准备…</p>
+        <button class="model-download-cancel" id="modelDownloadCancel" type="button">暂停下载</button>
+    </aside>
     <div class="global-window-controls" aria-label="Window controls">
         <button class="ctrl-btn" data-i18n-title="common.minimize" title="最小化" data-action="minimize">
             <i data-lucide="minus"></i>
@@ -4821,7 +4830,7 @@
                                     <p id="comfyH3RecommendationReason">检测完成后，这里只会提供匹配版本的直接下载按钮。</p>
                                     <code id="comfyH3RecommendationFile">--</code>
                                     <div class="comfy-download-actions">
-                                        <button type="button" id="comfyH3RecommendedDownload" data-comfy-download="" disabled><i data-lucide="download"></i><span>直接下载推荐模型</span></button>
+                                        <button type="button" id="comfyH3RecommendedDownload" data-comfy-download="" disabled><i data-lucide="download"></i><span>程序内下载推荐模型</span></button>
                                         <button type="button" class="secondary" id="comfyH3OverrideDownload" data-comfy-download="" hidden><i data-lucide="triangle-alert"></i><span>改下 W4A8 轻量版</span></button>
                                         <button type="button" class="secondary" id="comfyH3RefreshHardware"><i data-lucide="scan-search"></i><span>重新检测电脑</span></button>
                                         <button type="button" class="secondary" data-comfy-folder="diffusion"><i data-lucide="folder-open"></i><span>打开存放目录</span></button>
@@ -4833,14 +4842,14 @@
                                 </div>
                                 <p class="comfy-inline-install-status" id="comfyH3InstallStatus" hidden></p>
                                 <div class="comfy-video-model-folders">
-                                    <div><strong>Qwen3-VL 4B 编码器</strong><span>qwen3vl_4b_int8_convrot.safetensors · 5.37 GB</span><div class="comfy-model-download-actions"><button type="button" data-comfy-download="https://huggingface.co/Stick9190/qwen3vl_4b_int8_convrot/resolve/main/qwen3vl_4b_int8_convrot.safetensors?download=true"><i data-lucide="download"></i><span>直接下载</span></button><button type="button" class="secondary" data-comfy-folder="clip"><i data-lucide="folder-open"></i><span>打开存放目录</span></button></div></div>
-                                    <div><strong>H3 视频 VAE</strong><span>minimax_h3_video_vae_int8_convrot.safetensors · 3.17 GB</span><div class="comfy-model-download-actions"><button type="button" data-comfy-download="https://huggingface.co/Kijai/MiniMax-H3-experimental/resolve/main/minimax_h3_video_vae_int8_convrot.safetensors?download=true"><i data-lucide="download"></i><span>直接下载</span></button><button type="button" class="secondary" data-comfy-folder="vae"><i data-lucide="folder-open"></i><span>打开存放目录</span></button></div></div>
-                                    <div><strong>H3 4B ClipProj</strong><span>mmh3-4b-ClipProj-v3-mlp.safetensors · 503 MB</span><div class="comfy-model-download-actions"><button type="button" data-comfy-download="https://huggingface.co/NicoLab28/ClipProj-MiniMax-H3/resolve/main/mmh3-4b-ClipProj-v3-mlp.safetensors?download=true"><i data-lucide="download"></i><span>直接下载</span></button><button type="button" class="secondary" data-comfy-folder="clipProjection"><i data-lucide="folder-open"></i><span>打开存放目录</span></button></div></div>
+                                    <div><strong>Qwen3-VL 4B 编码器</strong><span>qwen3vl_4b_int8_convrot.safetensors · 5.37 GB</span><div class="comfy-model-download-actions"><button type="button" data-comfy-folder="clip" data-comfy-file="qwen3vl_4b_int8_convrot.safetensors" data-comfy-download="https://huggingface.co/Stick9190/qwen3vl_4b_int8_convrot/resolve/main/qwen3vl_4b_int8_convrot.safetensors?download=true"><i data-lucide="download"></i><span>程序内下载</span></button><button type="button" class="secondary" data-comfy-folder="clip"><i data-lucide="folder-open"></i><span>打开存放目录</span></button></div></div>
+                                    <div><strong>H3 视频 VAE</strong><span>minimax_h3_video_vae_int8_convrot.safetensors · 3.17 GB</span><div class="comfy-model-download-actions"><button type="button" data-comfy-folder="vae" data-comfy-file="minimax_h3_video_vae_int8_convrot.safetensors" data-comfy-download="https://huggingface.co/Kijai/MiniMax-H3-experimental/resolve/main/minimax_h3_video_vae_int8_convrot.safetensors?download=true"><i data-lucide="download"></i><span>程序内下载</span></button><button type="button" class="secondary" data-comfy-folder="vae"><i data-lucide="folder-open"></i><span>打开存放目录</span></button></div></div>
+                                    <div><strong>H3 4B ClipProj</strong><span>mmh3-4b-ClipProj-v3-mlp.safetensors · 503 MB</span><div class="comfy-model-download-actions"><button type="button" data-comfy-folder="clipProjection" data-comfy-file="mmh3-4b-ClipProj-v3-mlp.safetensors" data-comfy-download="https://huggingface.co/NicoLab28/ClipProj-MiniMax-H3/resolve/main/mmh3-4b-ClipProj-v3-mlp.safetensors?download=true"><i data-lucide="download"></i><span>程序内下载</span></button><button type="button" class="secondary" data-comfy-folder="clipProjection"><i data-lucide="folder-open"></i><span>打开存放目录</span></button></div></div>
                                 </div>
                                 <details class="comfy-h3-other-models">
                                     <summary>高级用户：查看其他 FL2VA 版本</summary>
                                     <p>W4A8 更小但兼容性要求更高，不会作为 Windows / RTX 50 系默认推荐。</p>
-                                    <button type="button" class="secondary" data-comfy-download="https://huggingface.co/starsfriday/MiniMax-H3-w4a8/resolve/main/minimax_h3_fl2va_pruned_w4a8_mixed.safetensors?download=true">下载 FL2VA W4A8（12.54 GB）</button>
+                                    <button type="button" class="secondary" data-h3-model="w4a8" data-comfy-folder="diffusion" data-comfy-file="minimax_h3_fl2va_pruned_w4a8_mixed.safetensors" data-comfy-download="https://huggingface.co/starsfriday/MiniMax-H3-w4a8/resolve/main/minimax_h3_fl2va_pruned_w4a8_mixed.safetensors?download=true">程序内下载 FL2VA W4A8（12.54 GB）</button>
                                 </details>
                             </div>
                         </li>
@@ -4882,8 +4891,8 @@
                                         <span>wan2.1_t2v_1.3B_fp16.safetensors · 2.84 GB</span>
                                         <code id="comfyTutorialDiffusionPath"></code>
                                         <div class="comfy-model-download-actions">
-                                            <button type="button" data-comfy-download="https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/diffusion_models/wan2.1_t2v_1.3B_fp16.safetensors?download=true">
-                                                <i data-lucide="download"></i><span data-i18n="comfyStudio.officialDownload">官方下载</span>
+                                            <button type="button" data-comfy-folder="diffusion" data-comfy-file="wan2.1_t2v_1.3B_fp16.safetensors" data-comfy-download="https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/diffusion_models/wan2.1_t2v_1.3B_fp16.safetensors?download=true">
+                                                <i data-lucide="download"></i><span>程序内下载</span>
                                             </button>
                                             <button type="button" class="secondary" disabled title="百度网盘地址待提供">
                                                 <i data-lucide="cloud"></i><span data-i18n="comfyStudio.baiduDownloadPending">百度网盘（待提供）</span>
@@ -4898,8 +4907,8 @@
                                         <span>umt5_xxl_fp8_e4m3fn_scaled.safetensors · 6.74 GB</span>
                                         <code id="comfyTutorialClipPath"></code>
                                         <div class="comfy-model-download-actions">
-                                            <button type="button" data-comfy-download="https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors?download=true">
-                                                <i data-lucide="download"></i><span data-i18n="comfyStudio.officialDownload">官方下载</span>
+                                            <button type="button" data-comfy-folder="clip" data-comfy-file="umt5_xxl_fp8_e4m3fn_scaled.safetensors" data-comfy-download="https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors?download=true">
+                                                <i data-lucide="download"></i><span>程序内下载</span>
                                             </button>
                                             <button type="button" class="secondary" disabled title="百度网盘地址待提供">
                                                 <i data-lucide="cloud"></i><span data-i18n="comfyStudio.baiduDownloadPending">百度网盘（待提供）</span>
@@ -4914,8 +4923,8 @@
                                         <span>wan_2.1_vae.safetensors</span>
                                         <code id="comfyTutorialVaePath"></code>
                                         <div class="comfy-model-download-actions">
-                                            <button type="button" data-comfy-download="https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors?download=true">
-                                                <i data-lucide="download"></i><span data-i18n="comfyStudio.officialDownload">官方下载</span>
+                                            <button type="button" data-comfy-folder="vae" data-comfy-file="wan_2.1_vae.safetensors" data-comfy-download="https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors?download=true">
+                                                <i data-lucide="download"></i><span>程序内下载</span>
                                             </button>
                                             <button type="button" class="secondary" disabled title="百度网盘地址待提供">
                                                 <i data-lucide="cloud"></i><span data-i18n="comfyStudio.baiduDownloadPending">百度网盘（待提供）</span>
@@ -4981,7 +4990,7 @@
                         <div class="comfy-model-meta"><span>6.9 GB</span><span data-i18n="comfyStudio.vram8Plus">建议 8 GB+ 显存</span></div>
                         <code>sd_xl_base_1.0.safetensors</code>
                         <span class="comfy-model-installed" data-i18n="comfyStudio.modelInstalled" hidden>已检测到</span>
-                        <button type="button" data-comfy-download="https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/blob/main/sd_xl_base_1.0.safetensors"><i data-lucide="external-link"></i><span data-i18n="comfyStudio.openOfficialModel">打开官方下载页</span></button>
+                        <button type="button" data-comfy-folder="checkpoints" data-comfy-file="sd_xl_base_1.0.safetensors" data-comfy-download="https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_base_1.0.safetensors?download=true"><i data-lucide="download"></i><span>程序内下载</span></button>
                     </article>
                     <article class="comfy-model-card" data-model-file="v1-5-pruned-emaonly.safetensors">
                         <div class="comfy-model-card-top"><span data-i18n="comfyStudio.lightweight">轻量</span><strong>Stable Diffusion 1.5</strong></div>
@@ -4989,7 +4998,7 @@
                         <div class="comfy-model-meta"><span>4.3 GB</span><span data-i18n="comfyStudio.vram4Plus">建议 4 GB+ 显存</span></div>
                         <code>v1-5-pruned-emaonly.safetensors</code>
                         <span class="comfy-model-installed" data-i18n="comfyStudio.modelInstalled" hidden>已检测到</span>
-                        <button type="button" data-comfy-download="https://huggingface.co/runwayml/stable-diffusion-v1-5/blob/main/v1-5-pruned-emaonly.safetensors"><i data-lucide="external-link"></i><span data-i18n="comfyStudio.openOfficialModel">打开官方下载页</span></button>
+                        <button type="button" data-comfy-folder="checkpoints" data-comfy-file="v1-5-pruned-emaonly.safetensors" data-comfy-download="https://huggingface.co/runwayml/stable-diffusion-v1-5/resolve/main/v1-5-pruned-emaonly.safetensors?download=true"><i data-lucide="download"></i><span>程序内下载</span></button>
                     </article>
                     <article class="comfy-model-card" data-model-file="sd_xl_turbo_1.0_fp16.safetensors">
                         <div class="comfy-model-card-top"><span data-i18n="comfyStudio.fastModel">快速</span><strong>SDXL Turbo</strong></div>
@@ -4997,7 +5006,7 @@
                         <div class="comfy-model-meta"><span>6.9 GB</span><span data-i18n="comfyStudio.vram8Plus">建议 8 GB+ 显存</span></div>
                         <code>sd_xl_turbo_1.0_fp16.safetensors</code>
                         <span class="comfy-model-installed" data-i18n="comfyStudio.modelInstalled" hidden>已检测到</span>
-                        <button type="button" data-comfy-download="https://huggingface.co/stabilityai/sdxl-turbo/blob/main/sd_xl_turbo_1.0_fp16.safetensors"><i data-lucide="external-link"></i><span data-i18n="comfyStudio.openOfficialModel">打开官方下载页</span></button>
+                        <button type="button" data-comfy-folder="checkpoints" data-comfy-file="sd_xl_turbo_1.0_fp16.safetensors" data-comfy-download="https://huggingface.co/stabilityai/sdxl-turbo/resolve/main/sd_xl_turbo_1.0_fp16.safetensors?download=true"><i data-lucide="download"></i><span>程序内下载</span></button>
                     </article>
                 </div>
                 <div class="comfy-model-help"><i data-lucide="circle-alert"></i><span data-i18n="comfyStudio.modelLicenseHint">下载页面可能要求登录并同意模型许可。下载完成后请将整个 .safetensors 文件移入上述目录。</span></div>

@@ -27,7 +27,8 @@ dirs = "5"
 opener = "0.7"
 url = "2"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "bmp", "gif"] }
-reqwest = { version = "0.13", default-features = false, features = ["json", "multipart", "rustls"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "multipart", "rustls", "stream"] }
+futures-util = "0.3"
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
 
 [target.'cfg(windows)'.dependencies]

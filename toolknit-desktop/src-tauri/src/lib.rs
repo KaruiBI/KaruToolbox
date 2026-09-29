@@ -425,11 +425,217 @@ static IS_CONVERTING: AtomicBool = AtomicBool::new(false);
 static CANCEL_FLAG: AtomicBool = AtomicBool::new(false);
 static CURRENT_CHILD_ID: AtomicU32 = AtomicU32::new(0);
 static COMFY_CHILD: Mutex<Option<std::process::Child>> = Mutex::new(None);
+static MODEL_DOWNLOAD_CANCEL: AtomicBool = AtomicBool::new(false);
+static MODEL_DOWNLOAD_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+struct ModelDownloadGuard;
+
+impl Drop for ModelDownloadGuard {
+    fn drop(&mut self) {
+        MODEL_DOWNLOAD_ACTIVE.store(false, Ordering::SeqCst);
+    }
+}
 
 #[derive(serde::Serialize)]
 struct ComfyProcessInfo {
     running: bool,
     pid: u32,
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ModelDownloadProgress {
+    filename: String,
+    downloaded_bytes: u64,
+    total_bytes: u64,
+}
+
+fn validate_model_download(url: &str, filename: &str, folder: &str) -> Result<(url::Url, &'static str), String> {
+    let parsed = url::Url::parse(url).map_err(|_| "模型下载地址无效".to_string())?;
+    let allowed = matches!(parsed.host_str(), Some("huggingface.co") | Some("hf-mirror.com"));
+    if parsed.scheme() != "https" || !allowed {
+        return Err("内置下载仅允许 Hugging Face 官方或其镜像 HTTPS 地址".to_string());
+    }
+    if !parsed.path().contains("/resolve/") || !parsed.path().ends_with(filename) {
+        return Err("模型下载地址与文件名不匹配".to_string());
+    }
+    if filename.is_empty()
+        || filename.chars().any(|ch| matches!(ch, '/' | '\\' | '\0'))
+        || !matches!(std::path::Path::new(filename).extension().and_then(|value| value.to_str()), Some("safetensors" | "ckpt"))
+    {
+        return Err("模型文件名不安全".to_string());
+    }
+    let target_folder = match folder {
+        "checkpoints" => "checkpoints",
+        "diffusion" => "diffusion_models",
+        "clip" => "text_encoders",
+        "vae" => "vae",
+        "clipProjection" => "clip_projections",
+        _ => return Err("不支持的模型目录".to_string()),
+    };
+    Ok((parsed, target_folder))
+}
+
+fn build_download_client(proxy_addr: Option<&str>) -> Result<reqwest::Client, String> {
+    let mut builder = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .redirect(reqwest::redirect::Policy::limited(10));
+    if let Some(addr) = proxy_addr {
+        let proxy = reqwest::Proxy::all(addr).map_err(|e| e.to_string())?;
+        builder = builder.proxy(proxy);
+    }
+    builder.build().map_err(|e| e.to_string())
+}
+
+fn download_host(url: &str) -> String {
+    url::Url::parse(url)
+        .ok()
+        .and_then(|parsed| parsed.host_str().map(str::to_string))
+        .unwrap_or_else(|| "下载服务器".to_string())
+}
+
+#[tauri::command]
+async fn download_comfy_model(
+    app: tauri::AppHandle,
+    comfy_path: String,
+    url: String,
+    filename: String,
+    folder: String,
+) -> Result<String, String> {
+    use futures_util::StreamExt;
+    use std::io::Write;
+    use tauri::Emitter;
+
+    let comfy_dir = std::path::PathBuf::from(comfy_path.trim());
+    if !comfy_dir.is_dir() || !comfy_dir.join("main.py").is_file() {
+        return Err("请先选择包含 main.py 的 ComfyUI 目录".to_string());
+    }
+    let (download_url, target_folder) = validate_model_download(&url, &filename, &folder)?;
+    let target_dir = comfy_dir.join("models").join(target_folder);
+    std::fs::create_dir_all(&target_dir).map_err(|e| format!("无法创建模型目录: {}", e))?;
+    let target = target_dir.join(&filename);
+    if target.is_file() {
+        return Ok(target.to_string_lossy().to_string());
+    }
+    MODEL_DOWNLOAD_ACTIVE
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .map_err(|_| "已有模型正在下载，请稍候".to_string())?;
+    let _download_guard = ModelDownloadGuard;
+    let partial = target_dir.join(format!("{}.part", filename));
+    let existing = std::fs::metadata(&partial).map(|value| value.len()).unwrap_or(0);
+
+    MODEL_DOWNLOAD_CANCEL.store(false, Ordering::SeqCst);
+
+    // 候选顺序：官方直连 → hf-mirror 镜像 → 常见本地代理端口（Clash 7890 / v2rayN 10809 / SOCKS 类 1080）。
+    // reqwest 开启 default-features = false 后不会读系统代理，必须显式尝试。
+    let direct = download_url.to_string();
+    let mirrored = direct.replace("huggingface.co", "hf-mirror.com");
+    let env_proxy = ["HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"]
+        .iter()
+        .find_map(|key| std::env::var(key).ok().filter(|value| !value.trim().is_empty()));
+    let mut candidates: Vec<(String, Option<String>)> = Vec::new();
+    let push_candidate = |url: String, proxy: Option<String>, list: &mut Vec<(String, Option<String>)>| {
+        if !list.iter().any(|(existing_url, existing_proxy)| *existing_url == url && *existing_proxy == proxy) {
+            list.push((url, proxy));
+        }
+    };
+    for base in [direct.clone(), mirrored.clone()] {
+        push_candidate(base.clone(), env_proxy.clone(), &mut candidates);
+    }
+    for port in ["7890", "10809", "1080"] {
+        let proxy = Some(format!("http://127.0.0.1:{port}"));
+        push_candidate(direct.clone(), proxy.clone(), &mut candidates);
+        push_candidate(mirrored.clone(), proxy, &mut candidates);
+    }
+
+    let mut last_error = String::new();
+    let mut response = None;
+    for (candidate_url, candidate_proxy) in &candidates {
+        let client = match build_download_client(candidate_proxy.as_deref()) {
+            Ok(value) => value,
+            Err(error) => {
+                last_error = error;
+                continue;
+            }
+        };
+        let mut request = client.get(candidate_url);
+        if existing > 0 {
+            request = request.header(reqwest::header::RANGE, format!("bytes={}-", existing));
+        }
+        match request.send().await {
+            Ok(result) => {
+                let status = result.status();
+                if status == reqwest::StatusCode::PARTIAL_CONTENT || status.is_success() {
+                    response = Some(result);
+                    break;
+                }
+                last_error = format!("模型服务器返回 HTTP {}", status.as_u16());
+            }
+            Err(error) => {
+                last_error = format!("连接 {} 失败: {}", download_host(candidate_url), error);
+            }
+        }
+        if MODEL_DOWNLOAD_CANCEL.load(Ordering::SeqCst) {
+            return Err("下载已取消".to_string());
+        }
+    }
+    let response = response.ok_or_else(|| {
+        format!(
+            "{last_error}\n可能原因：① 当前网络无法直连 Hugging Face（国内通常需要镜像或代理）；② 代理软件未开启或端口不是 7890 / 10809；③ 防火墙拦截。已自动尝试官方地址、hf-mirror 镜像和常见本地代理。"
+        )
+    })?;
+    let is_partial = response.status() == reqwest::StatusCode::PARTIAL_CONTENT;
+    if !response.status().is_success() {
+        return Err(format!("模型服务器返回 HTTP {}", response.status().as_u16()));
+    }
+    let resume_from = if is_partial { existing } else { 0 };    let total = response.content_length().unwrap_or(0).saturating_add(resume_from);
+    let mut output = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .append(is_partial)
+        .truncate(!is_partial)
+        .open(&partial)
+        .map_err(|e| format!("无法写入模型文件: {}", e))?;
+    let mut downloaded = resume_from;
+    let mut stream = response.bytes_stream();
+    let mut last_emit = std::time::Instant::now() - std::time::Duration::from_secs(1);
+
+    let _ = app.emit("comfy-model-download-progress", ModelDownloadProgress {
+        filename: filename.clone(),
+        downloaded_bytes: downloaded,
+        total_bytes: total,
+    });
+    while let Some(chunk) = stream.next().await {
+        if MODEL_DOWNLOAD_CANCEL.load(Ordering::SeqCst) {
+            output.flush().map_err(|e| e.to_string())?;
+            return Err("下载已暂停，可再次点击继续".to_string());
+        }
+        let bytes = chunk.map_err(|e| format!("模型下载中断: {}", e))?;
+        output.write_all(&bytes).map_err(|e| format!("写入模型失败: {}", e))?;
+        downloaded = downloaded.saturating_add(bytes.len() as u64);
+        if last_emit.elapsed() >= std::time::Duration::from_millis(500) {
+            let _ = app.emit("comfy-model-download-progress", ModelDownloadProgress {
+                filename: filename.clone(),
+                downloaded_bytes: downloaded,
+                total_bytes: total,
+            });
+            last_emit = std::time::Instant::now();
+        }
+    }
+    output.flush().map_err(|e| format!("保存模型失败: {}", e))?;
+    drop(output);
+    std::fs::rename(&partial, &target).map_err(|e| format!("完成模型文件失败: {}", e))?;
+    let _ = app.emit("comfy-model-download-progress", ModelDownloadProgress {
+        filename,
+        downloaded_bytes: downloaded,
+        total_bytes: total.max(downloaded),
+    });
+    Ok(target.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn cancel_comfy_model_download() {
+    MODEL_DOWNLOAD_CANCEL.store(true, Ordering::SeqCst);
 }
 
 fn validate_comfy_url(raw_url: &str) -> Result<url::Url, String> {
@@ -801,6 +1007,7 @@ fn terminate_comfy_process() -> Result<(), String> {
 
 fn terminate_managed_services() -> Result<(), String> {
     CANCEL_FLAG.store(true, Ordering::SeqCst);
+    MODEL_DOWNLOAD_CANCEL.store(true, Ordering::SeqCst);
     let conversion_pid = CURRENT_CHILD_ID.swap(0, Ordering::SeqCst);
     if conversion_pid != 0 {
         #[cfg(target_os = "windows")]
@@ -2257,6 +2464,7 @@ pub fn run() {
       compress_image_batch,
       convert_video_batch,
     comfy_http_json, comfy_upload_image, comfy_download_output, install_comfy_video_helper, install_comfy_h3_nodes,
+      download_comfy_model, cancel_comfy_model_download,
       start_comfy_local, stop_comfy_local, comfy_process_status,
       quit_application,
       set_tray_lang,

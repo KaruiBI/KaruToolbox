@@ -560,6 +560,48 @@
           -webkit-app-region: no-drag;
       }
 
+      .model-download-panel {
+          position: fixed;
+          right: 22px;
+          bottom: 22px;
+          z-index: 99990;
+          width: min(420px, calc(100vw - 44px));
+          padding: 18px;
+          border: 1px solid rgba(38, 143, 218, 0.18);
+          border-radius: 18px;
+          background: rgba(250, 253, 255, 0.97);
+          box-shadow: 0 18px 54px rgba(23, 61, 96, 0.24);
+          backdrop-filter: blur(18px);
+          color: #183047;
+      }
+
+      .model-download-panel-head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 14px;
+      }
+
+      .model-download-panel-head > div { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+      .model-download-panel-head span { color: #268fda; font-size: 9px; font-weight: 800; letter-spacing: 0.15em; }
+      .model-download-panel-head strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+      .model-download-panel-head button {
+          width: 30px; height: 30px; flex: 0 0 auto; display: grid; place-items: center;
+          border: 0; border-radius: 9px; color: #6f8295; background: #edf5fa; cursor: pointer;
+      }
+      .model-download-panel-head svg { width: 15px; height: 15px; }
+      .model-download-track { height: 7px; margin-top: 15px; overflow: hidden; border-radius: 999px; background: #e5eef5; }
+      .model-download-track span { display: block; width: 0; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #268fda, #36b8c8); transition: width 0.25s ease; }
+      .model-download-panel p { margin: 10px 0 0; color: #687d91; font-size: 12px; line-height: 1.55; word-break: break-word; white-space: pre-line; }
+      .model-download-cancel {
+          margin-top: 12px; min-height: 34px; padding: 0 14px; border: 1px solid rgba(214, 75, 95, 0.2);
+          border-radius: 10px; color: #bd4255; background: rgba(214, 75, 95, 0.07); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer;
+      }
+      .model-download-panel[data-state="success"] .model-download-track span { background: #24a47b; }
+      .model-download-panel[data-state="error"] .model-download-track span { background: #d64b5f; }
+      .model-download-panel[data-state="success"] .model-download-cancel,
+      .model-download-panel[data-state="error"] .model-download-cancel { display: none; }
+
       :is(.main-header, .global-window-controls) .ctrl-btn {
           width: 34px;
           height: 34px;
@@ -13159,6 +13201,7 @@
           background: #fff;
           border: 1px solid var(--karui-line);
           border-radius: 8px;
+          white-space: pre-line;
       }
       
       .comfy-inline-install-status[data-state="success"] {
