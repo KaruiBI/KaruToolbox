@@ -619,6 +619,16 @@
                             <button class="audio-convert-format-option" data-format="TS">TS</button>
                         </div>
                     </div>
+                    <div class="audio-convert-format-selector">
+                        <span class="audio-convert-format-label" data-i18n="home.videoConvert.qualityLabel">输出清晰度</span>
+                        <div class="audio-convert-format-options" id="videoConvertQualityOptions">
+                            <button class="audio-convert-format-option active" data-quality="source" data-i18n="home.videoConvert.qualitySource">原画质</button>
+                            <button class="audio-convert-format-option" data-quality="1080p" data-i18n="home.videoConvert.qualityP1080">1080P 高清</button>
+                            <button class="audio-convert-format-option" data-quality="720p" data-i18n="home.videoConvert.qualityP720">720P 标准</button>
+                            <button class="audio-convert-format-option" data-quality="480p" data-i18n="home.videoConvert.qualityP480">480P 流畅</button>
+                        </div>
+                        <p class="audio-convert-quality-hint" id="videoConvertQualityHint" data-i18n="home.videoConvert.qualityHintSource">和原来的视频一样清晰，文件大小基本不变</p>
+                    </div>
                     <button class="audio-convert-cta" id="videoConvertCta">
             <i data-lucide="upload"></i>
             <span data-i18n="home.videoConvert.cta">上传视频文件</span>
@@ -4509,6 +4519,10 @@
                 <div class="audio-convert-success-row">
                     <span class="audio-convert-success-key" data-i18n="home.videoConvert.successTarget">目标格式</span>
                     <span class="audio-convert-success-value" id="videoConvertSuccessFormat"></span>
+                </div>
+                <div class="audio-convert-success-row">
+                    <span class="audio-convert-success-key" data-i18n="home.videoConvert.successQuality">输出清晰度</span>
+                    <span class="audio-convert-success-value" id="videoConvertSuccessQuality"></span>
                 </div>
                 <div class="audio-convert-success-row">
                     <span class="audio-convert-success-key" data-i18n="home.videoConvert.successCount">处理文件</span>

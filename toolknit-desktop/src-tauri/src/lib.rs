@@ -1688,6 +1688,7 @@ async fn convert_video_batch(
     input_paths: Vec<String>,
     output_dir: String,
     target_format: String,
+    quality: Option<String>,
 ) -> Result<BatchConvertResult, String> {
     if IS_CONVERTING.load(Ordering::SeqCst) {
         return Err("Conversion already in progress".to_string());
@@ -1742,21 +1743,41 @@ async fn convert_video_batch(
 
         let video_encoder = if nvenc_available { hw_encoder } else { cpu_encoder };
 
+        // Output quality preset from the UI (source / 1080p / 720p / 480p)
+        // Each entry: scale filter (None = keep original size), x264 CRF, NVENC CQ, VP9 CRF
+        let q = quality.unwrap_or_else(|| "source".to_string()).to_lowercase();
+        let (scale_filter, crf_x264, cq_nvenc, crf_vp9): (Option<String>, u32, u32, u32) = match q.as_str() {
+            "1080p" | "p1080" => (
+                Some("scale=1920:1080:force_original_aspect_ratio=decrease:force_divisible_by=2".to_string()),
+                23, 26, 33,
+            ),
+            "720p" | "p720" => (
+                Some("scale=1280:720:force_original_aspect_ratio=decrease:force_divisible_by=2".to_string()),
+                26, 30, 36,
+            ),
+            "480p" | "p480" => (
+                Some("scale=854:480:force_original_aspect_ratio=decrease:force_divisible_by=2".to_string()),
+                29, 34, 40,
+            ),
+            // "source" and anything unexpected: keep the original resolution with high quality
+            _ => (None, 20, 22, 30),
+        };
+
         // Build encoder-specific extra args
         let encoder_args: Vec<String> = if nvenc_available {
             // NVENC: fast preset + zero-latency tuning for speed
             vec!["-preset".to_string(), "fast".to_string(),
                  "-tune".to_string(), "zerolatency".to_string(),
                  "-rc".to_string(), "vbr".to_string(),
-                 "-cq".to_string(), "28".to_string()]
+                 "-cq".to_string(), cq_nvenc.to_string()]
         } else if video_encoder == "libx264" {
-            // x264 CPU: fast preset + CRF 28 for speed
+            // x264 CPU: fast preset + CRF from the selected quality level
             vec!["-preset".to_string(), "fast".to_string(),
-                 "-crf".to_string(), "28".to_string()]
+                 "-crf".to_string(), crf_x264.to_string()]
         } else if video_encoder == "libvpx-vp9" {
             // VP9: speed 2 for faster encoding
             vec!["-speed".to_string(), "2".to_string(),
-                 "-crf".to_string(), "32".to_string()]
+                 "-crf".to_string(), crf_vp9.to_string()]
         } else {
             vec![]
         };
@@ -1792,6 +1813,7 @@ async fn convert_video_batch(
             let audio_encoder = audio_encoder.to_string();
             let encoder_args = encoder_args.clone();
             let extra_vf_args = extra_vf_args.clone();
+            let scale_filter = scale_filter.clone();
             let app_handle = app_handle.clone();
             let success_count = Arc::clone(&success_count);
             let fail_count = Arc::clone(&fail_count);
@@ -1814,6 +1836,11 @@ async fn convert_video_batch(
 
                 for arg in &extra_vf_args {
                     cmd.arg(arg);
+                }
+
+                // Downscale only when the user picked a lower output quality
+                if let Some(sf) = &scale_filter {
+                    cmd.arg("-vf").arg(sf);
                 }
 
                 cmd.arg("-progress").arg("pipe:1")

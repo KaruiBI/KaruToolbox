@@ -453,12 +453,14 @@ export const HELP_CONTENT = {
       <ol class="help-steps">
         <li>在视频工具分类中点击"视频格式转换"</li>
         <li>上传一个或多个视频文件</li>
-        <li>选择目标格式</li>
+        <li>选择目标格式（MP4 / MKV / MOV 等）</li>
+        <li>选择输出清晰度：原画质、1080P 高清、720P 标准、480P 流畅</li>
         <li>点击"开始转换"</li>
         <li>处理完成后弹出成功提示</li>
       </ol>
 
       <div class="help-note">
+        <p>"原画质"不会改变分辨率，文件体积基本不变；想让文件更小就选 720P 或 480P。</p>
         <p>视频转换需要 FFmpeg 扩展包，首次使用时会提示下载。</p>
       </div>
     </div>`

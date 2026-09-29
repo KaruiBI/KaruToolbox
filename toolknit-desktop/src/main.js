@@ -2495,6 +2495,22 @@ const videoConvertSuccessCount = document.getElementById('videoConvertSuccessCou
 const videoConvertOpenFolder = document.getElementById('videoConvertOpenFolder');
 const videoConvertSuccessOk = document.getElementById('videoConvertSuccessOk');
 const videoConvertFormatOptions = document.getElementById('videoConvertFormatOptions');
+const videoConvertQualityOptions = document.getElementById('videoConvertQualityOptions');
+const videoConvertQualityHint = document.getElementById('videoConvertQualityHint');
+const videoConvertSuccessQuality = document.getElementById('videoConvertSuccessQuality');
+let targetVideoQuality = 'source';
+const VIDEO_QUALITY_HINT_KEYS = {
+    source: 'home.videoConvert.qualityHintSource',
+    '1080p': 'home.videoConvert.qualityHintP1080',
+    '720p': 'home.videoConvert.qualityHintP720',
+    '480p': 'home.videoConvert.qualityHintP480'
+};
+const VIDEO_QUALITY_LABEL_KEYS = {
+    source: 'home.videoConvert.qualitySource',
+    '1080p': 'home.videoConvert.qualityP1080',
+    '720p': 'home.videoConvert.qualityP720',
+    '480p': 'home.videoConvert.qualityP480'
+};
 const videoExts = ['mp4', 'avi', 'mkv', 'mov', 'webm', 'flv', 'wmv', 'ts'];
 
 function addVideoFiles(fileList) {
@@ -2628,6 +2644,7 @@ function showVideoSuccessDialog(result) {
     }
     if (videoConvertSuccessMeta) videoConvertSuccessMeta.textContent = summary;
     if (videoConvertSuccessFormat) videoConvertSuccessFormat.textContent = targetVideoFormat;
+    if (videoConvertSuccessQuality) videoConvertSuccessQuality.textContent = getVideoQualityLabel(targetVideoQuality);
     if (videoConvertSuccessCount) videoConvertSuccessCount.textContent = `${successCount} ${t('home.videoConvert.successCountUnit')}`;
     if (videoConvertSuccessPath) videoConvertSuccessPath.textContent = outputPath;
     lastVideoOutputPath = outputPath;
@@ -2701,7 +2718,7 @@ async function startVideoProcessing() {
                 }
             });
 
-            const result = await invoke('convert_video_batch', { inputPaths, outputDir: finalOutputDir, targetFormat: targetVideoFormat });
+            const result = await invoke('convert_video_batch', { inputPaths, outputDir: finalOutputDir, targetFormat: targetVideoFormat, quality: targetVideoQuality });
             if (unlisten) unlisten();
             videoConvertProcessBarFill.style.width = '100%';
             setTimeout(() => {
@@ -2765,6 +2782,31 @@ if (videoConvertFormatOptions) {
         targetVideoFormat = btn.dataset.format;
     });
 }
+
+function renderVideoQualityHint() {
+    if (!videoConvertQualityHint) return;
+    const key = VIDEO_QUALITY_HINT_KEYS[targetVideoQuality];
+    if (key) videoConvertQualityHint.textContent = t(key);
+}
+
+function getVideoQualityLabel(quality) {
+    const key = VIDEO_QUALITY_LABEL_KEYS[quality];
+    return key ? t(key) : quality;
+}
+
+if (videoConvertQualityOptions) {
+    videoConvertQualityOptions.addEventListener('click', (e) => {
+        const btn = e.target.closest('.audio-convert-format-option');
+        if (!btn) return;
+        videoConvertQualityOptions.querySelectorAll('.audio-convert-format-option').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        targetVideoQuality = btn.dataset.quality;
+        renderVideoQualityHint();
+    });
+}
+
+renderVideoQualityHint();
+onLangChange(renderVideoQualityHint);
 
 // ===== BPM Detect Tool =====
 const bpmDetectOverlay = document.getElementById('bpmDetectOverlay');

@@ -450,12 +450,14 @@ export const HELP_CONTENT_EN = {
       <ol class="help-steps">
         <li>Click "Video Format Convert" in the Video tools category</li>
         <li>Upload one or more video files</li>
-        <li>Select the target format</li>
+        <li>Select the target format (MP4 / MKV / MOV, etc.)</li>
+        <li>Select the output quality: Original, 1080P HD, 720P Standard, or 480P Lite</li>
         <li>Click "Start Convert"</li>
         <li>A success prompt appears after processing</li>
       </ol>
 
       <div class="help-note">
+        <p>"Original" keeps the source resolution with barely any size change; pick 720P or 480P to get a much smaller file.</p>
         <p>Video conversion requires the FFmpeg extension. You'll be prompted to download it on first use.</p>
       </div>
     </div>`

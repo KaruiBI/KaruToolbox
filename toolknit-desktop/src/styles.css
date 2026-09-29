@@ -3471,6 +3471,15 @@
           color: #ffffff;
       }
       
+      .audio-convert-quality-hint {
+          margin: 0;
+          max-width: 420px;
+          text-align: center;
+          font-size: 12px;
+          line-height: 1.6;
+          color: rgba(255, 255, 255, 0.45);
+      }
+      
       .audio-convert-success-overlay {
           position: fixed;
           inset: 0;
@@ -12224,6 +12233,7 @@
       .ai-doc-chip-title,
       .ai-doc-prompt-chips,
       .audio-convert-format-label,
+      .audio-convert-quality-hint,
       .format-name,
       .audio-clip-file-name,
       .audio-clip-time-display,
