@@ -236,6 +236,14 @@ Rust cargo check --offline：通过（仅保留 2 个既有 unused import 警告
 
 验证：esbuild 打包通过；`index.html` 标签配对与 DOM id 唯一性检查通过。
 
+补充（同日）：显卡类型改为自动检测。
+
+- 内置引擎卡片不再让用户选下拉框，改为一行识别结果（徽标 + 显卡型号 + 将安装哪个版本）；
+- 显卡类型选择移入「手动选择显卡类型」折叠项，用户改过之后自动检测不再覆盖，并显示「已手动选择：…」；
+- 未检测到独显时提示核显/CPU 生成很慢，建议兼容版本或云端 AI。
+
+验证：esbuild 打包（JS/CSS）通过；locale JSON 解析通过；`index.html` section 19/19、div 1897/1897、details 8/8 配对。
+
 ## 当前风险与技术债
 
 1. `src/main.js`、`src/styles.css` 和 `index.html` 体积很大，新功能必须模块化。

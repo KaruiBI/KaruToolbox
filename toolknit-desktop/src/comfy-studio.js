@@ -54,6 +54,10 @@ const elements = {
     lowVram: document.getElementById('comfyLowVram'),
     browsePath: document.getElementById('comfyBrowsePath'),
     builtinRuntime: document.getElementById('comfyBuiltinRuntime'),
+    builtinDetectBadge: document.getElementById('comfyBuiltinDetectBadge'),
+    builtinDetectTitle: document.getElementById('comfyBuiltinDetectTitle'),
+    builtinDetectDetail: document.getElementById('comfyBuiltinDetectDetail'),
+    builtinManual: document.getElementById('comfyBuiltinManual'),
     builtinStatus: document.getElementById('comfyBuiltinStatus'),
     builtinStatusText: document.getElementById('comfyBuiltinStatusText'),
     builtinProgress: document.getElementById('comfyBuiltinProgress'),
@@ -774,16 +778,60 @@ function renderHardwareStatus (status) {
   setHardwareState('ready', t('comfyStudio.hardwareReady'));
 }
 
-// 按检测到的显卡自动预选内置引擎包，用户手动改过就不再覆盖
+// 按检测到的显卡自动匹配内置引擎版本；用户手动改过后不再覆盖
 function syncBuiltinRuntimeFromHardware (status) {
-  if (!elements.builtinRuntime || builtinRuntimeTouched) return;
+  if (!elements.builtinRuntime) return;
   const gpu = primaryGpu(status);
+  const name = shortHardwareName(gpu?.name);
   const label = `${gpu?.vendor || ''} ${gpu?.name || ''}`.toLowerCase();
   let value = '';
-  if (/nvidia|geforce|\brtx\b|\bgtx\b|quadro|tesla/.test(label)) value = 'comfyui-windows-nvidia';
-  else if (/amd|radeon/.test(label)) value = 'comfyui-windows-amd';
-  else if (/intel|\barc\b|iris|uhd graphics/.test(label)) value = 'comfyui-windows-intel';
+  let badge = 'CPU';
+  let title = builtinText('未检测到独立显卡', 'No dedicated GPU detected');
+  let detail = builtinText('核显或纯 CPU 生成会很慢，建议手动选择兼容版本，或改用云端 AI。',
+    'Integrated graphics or CPU is very slow. Pick a compatible build manually or use cloud AI instead.');
+
+  if (/nvidia|geforce|\brtx\b|\bgtx\b|quadro|tesla/.test(label)) {
+    value = 'comfyui-windows-nvidia';
+    badge = 'NVIDIA';
+    title = builtinText(`已识别到 NVIDIA 显卡${name ? `：${name}` : ''}`, `Detected NVIDIA GPU${name ? `: ${name}` : ''}`);
+    detail = builtinText('将自动安装 NVIDIA 版引擎；若装好后启动失败，可在下方手动改为旧显卡版。',
+      'The NVIDIA build will be installed. If it fails to start, switch to the legacy build below.');
+  } else if (/amd|radeon/.test(label)) {
+    value = 'comfyui-windows-amd';
+    badge = 'AMD';
+    title = builtinText(`已识别到 AMD 显卡${name ? `：${name}` : ''}`, `Detected AMD GPU${name ? `: ${name}` : ''}`);
+    detail = builtinText('将自动安装 AMD 版引擎。', 'The AMD build will be installed.');
+  } else if (/intel|\barc\b|iris|uhd graphics/.test(label)) {
+    value = 'comfyui-windows-intel';
+    badge = 'INTEL';
+    title = builtinText(`已识别到 Intel 显卡${name ? `：${name}` : ''}`, `Detected Intel GPU${name ? `: ${name}` : ''}`);
+    detail = builtinText('将自动安装 Intel 版引擎；核显生成速度较慢。', 'The Intel build will be installed. Integrated graphics is slower.');
+  }
+
+  if (builtinRuntimeTouched) return;
   if (value) elements.builtinRuntime.value = value;
+  if (elements.builtinDetectBadge) elements.builtinDetectBadge.textContent = badge;
+  if (elements.builtinDetectTitle) elements.builtinDetectTitle.textContent = title;
+  if (elements.builtinDetectDetail) elements.builtinDetectDetail.textContent = detail;
+}
+
+// 用户手动选择了显卡类型时，显示当前选择并停止自动覆盖
+function refreshBuiltinDetectText () {
+  if (!elements.builtinRuntime || !elements.builtinDetectTitle) return;
+  const text = elements.builtinRuntime.selectedOptions?.[0]?.textContent?.trim() || '';
+  elements.builtinDetectTitle.textContent = builtinText(`已手动选择：${text}`, `Manually selected: ${text}`);
+  if (elements.builtinDetectDetail) {
+    elements.builtinDetectDetail.textContent = builtinText('将安装你选择的这个版本。', 'This build will be installed.');
+  }
+  const badgeMap = {
+    'comfyui-windows-nvidia': 'NVIDIA',
+    'comfyui-windows-nvidia-cu126': 'NVIDIA',
+    'comfyui-windows-amd': 'AMD',
+    'comfyui-windows-intel': 'INTEL',
+  };
+  if (elements.builtinDetectBadge) {
+    elements.builtinDetectBadge.textContent = badgeMap[elements.builtinRuntime.value] || 'CPU';
+  }
 }
 
 function renderHardwareSummary (status) {
@@ -2528,7 +2576,10 @@ elements.stopEngine?.addEventListener('click', async () => {
   try { await stopLocalEngine(); }
   catch (error) { setEngineStatus('error', error.message || String(error)); }
 });
-elements.builtinRuntime?.addEventListener('change', () => { builtinRuntimeTouched = true; });
+elements.builtinRuntime?.addEventListener('change', () => {
+  builtinRuntimeTouched = true;
+  refreshBuiltinDetectText();
+});
 elements.installBuiltin?.addEventListener('click', () => installBuiltinRuntime('offline'));
 elements.installBuiltinLatest?.addEventListener('click', () => installBuiltinRuntime('online'));
 elements.startBuiltin?.addEventListener('click', () => startBuiltinRuntime());

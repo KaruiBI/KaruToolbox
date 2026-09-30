@@ -4635,15 +4635,27 @@
                         <p data-i18n="comfyStudio.builtinLead">Karui 自带生成引擎，不用自己安装和配置 ComfyUI，装好就能用。</p>
                     </div>
                 </div>
-                <label class="comfy-field">
-                    <span data-i18n="comfyStudio.builtinGpuType">显卡类型</span>
-                    <select id="comfyBuiltinRuntime">
-                        <option value="comfyui-windows-nvidia" data-i18n="comfyStudio.runtimeNvidia">NVIDIA 显卡（最常见）</option>
-                        <option value="comfyui-windows-nvidia-cu126" data-i18n="comfyStudio.runtimeNvidiaOld">NVIDIA 旧显卡（CUDA 12.6）</option>
-                        <option value="comfyui-windows-amd" data-i18n="comfyStudio.runtimeAmd">AMD 显卡</option>
-                        <option value="comfyui-windows-intel" data-i18n="comfyStudio.runtimeIntel">Intel 显卡 / 核显</option>
-                    </select>
-                </label>
+                <div class="comfy-builtin-detect" id="comfyBuiltinDetect">
+                    <span class="comfy-builtin-detect-badge" id="comfyBuiltinDetectBadge">--</span>
+                    <div class="comfy-builtin-detect-text">
+                        <strong id="comfyBuiltinDetectTitle" data-i18n="comfyStudio.builtinDetecting">正在识别本机显卡…</strong>
+                        <small id="comfyBuiltinDetectDetail" data-i18n="comfyStudio.builtinDetectHint">识别后会自动匹配要安装的引擎版本。</small>
+                    </div>
+                </div>
+                <details class="comfy-advanced" id="comfyBuiltinManual">
+                    <summary><i data-lucide="sliders-horizontal"></i><span data-i18n="comfyStudio.builtinManual">手动选择显卡类型</span></summary>
+                    <div class="comfy-advanced-content">
+                        <label class="comfy-field">
+                            <span data-i18n="comfyStudio.builtinGpuType">显卡类型</span>
+                            <select id="comfyBuiltinRuntime">
+                                <option value="comfyui-windows-nvidia" data-i18n="comfyStudio.runtimeNvidia">NVIDIA 显卡（最常见）</option>
+                                <option value="comfyui-windows-nvidia-cu126" data-i18n="comfyStudio.runtimeNvidiaOld">NVIDIA 旧显卡（CUDA 12.6）</option>
+                                <option value="comfyui-windows-amd" data-i18n="comfyStudio.runtimeAmd">AMD 显卡</option>
+                                <option value="comfyui-windows-intel" data-i18n="comfyStudio.runtimeIntel">Intel 显卡 / 核显</option>
+                            </select>
+                        </label>
+                    </div>
+                </details>
                 <div class="comfy-engine-status" id="comfyBuiltinStatus" data-state="idle">
                     <span class="comfy-status-dot"></span>
                     <span id="comfyBuiltinStatusText" data-i18n="comfyStudio.builtinChecking">正在检查内置引擎…</span>
