@@ -417,6 +417,159 @@ fn get_install_config() -> Result<InstallConfig, String> {
     Ok(InstallConfig { language, install_path })
 }
 
+// ===== 内置 AI 引擎：统一数据目录（KARUI-AI-NODE-STUDIO-PLAN 阶段 A） =====
+//
+// 目录布局（8.1）：
+//   <存储位置>\AI\runtime\comfyui-<版本>\     引擎，可整体替换
+//   <存储位置>\AI\data\models\...             模型，升级不移动
+//   <存储位置>\AI\data\{custom_nodes,input,output,temp,user}
+//   <存储位置>\AI\{cache,logs,manifests}
+
+const AI_CATALOG_JSON: &str = include_str!("../ai-catalog/runtimes.json");
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AiModelPaths {
+    checkpoints: String,
+    diffusion_models: String,
+    text_encoders: String,
+    vae: String,
+    clip_projections: String,
+    loras: String,
+    controlnet: String,
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AiPaths {
+    ai_root: String,
+    runtime: String,
+    data: String,
+    models: AiModelPaths,
+    custom_nodes: String,
+    input: String,
+    output: String,
+    temp: String,
+    user: String,
+    cache: String,
+    logs: String,
+    manifests: String,
+}
+
+/// 统一 AI 根目录：优先用户在设置里选的存储位置，其次安装配置，最后文档目录。
+fn resolve_ai_root() -> Result<std::path::PathBuf, String> {
+    let base = match get_storage_override() {
+        Some(path) if !path.trim().is_empty() => std::path::PathBuf::from(path.trim()),
+        _ => {
+            let install_path = get_install_config()?.install_path;
+            if install_path.trim().is_empty() {
+                dirs::document_dir()
+                    .ok_or("找不到文档目录，无法确定 AI 存储位置".to_string())?
+                    .join("Karui 工具箱")
+            } else {
+                std::path::PathBuf::from(install_path.trim())
+            }
+        }
+    };
+    Ok(base.join("AI"))
+}
+
+fn ensure_ai_dirs() -> Result<AiPaths, String> {
+    let root = resolve_ai_root()?;
+    let sub = |segments: &[&str]| -> std::path::PathBuf {
+        let mut path = root.clone();
+        for segment in segments {
+            path.push(segment);
+        }
+        path
+    };
+
+    let paths = AiPaths {
+        ai_root: root.to_string_lossy().to_string(),
+        runtime: sub(&["runtime"]).to_string_lossy().to_string(),
+        data: sub(&["data"]).to_string_lossy().to_string(),
+        models: AiModelPaths {
+            checkpoints: sub(&["data", "models", "checkpoints"]).to_string_lossy().to_string(),
+            diffusion_models: sub(&["data", "models", "diffusion_models"]).to_string_lossy().to_string(),
+            text_encoders: sub(&["data", "models", "text_encoders"]).to_string_lossy().to_string(),
+            vae: sub(&["data", "models", "vae"]).to_string_lossy().to_string(),
+            clip_projections: sub(&["data", "models", "clip_projections"]).to_string_lossy().to_string(),
+            loras: sub(&["data", "models", "loras"]).to_string_lossy().to_string(),
+            controlnet: sub(&["data", "models", "controlnet"]).to_string_lossy().to_string(),
+        },
+        custom_nodes: sub(&["data", "custom_nodes"]).to_string_lossy().to_string(),
+        input: sub(&["data", "input"]).to_string_lossy().to_string(),
+        output: sub(&["data", "output"]).to_string_lossy().to_string(),
+        temp: sub(&["data", "temp"]).to_string_lossy().to_string(),
+        user: sub(&["data", "user"]).to_string_lossy().to_string(),
+        cache: sub(&["cache"]).to_string_lossy().to_string(),
+        logs: sub(&["logs"]).to_string_lossy().to_string(),
+        manifests: sub(&["manifests"]).to_string_lossy().to_string(),
+    };
+
+    let all = [
+        paths.runtime.as_str(),
+        paths.data.as_str(),
+        paths.models.checkpoints.as_str(),
+        paths.models.diffusion_models.as_str(),
+        paths.models.text_encoders.as_str(),
+        paths.models.vae.as_str(),
+        paths.models.clip_projections.as_str(),
+        paths.models.loras.as_str(),
+        paths.models.controlnet.as_str(),
+        paths.custom_nodes.as_str(),
+        paths.input.as_str(),
+        paths.output.as_str(),
+        paths.temp.as_str(),
+        paths.user.as_str(),
+        paths.cache.as_str(),
+        paths.logs.as_str(),
+        paths.manifests.as_str(),
+    ];
+    for dir in all {
+        std::fs::create_dir_all(dir).map_err(|e| format!("无法创建 AI 目录 {}: {}", dir, e))?;
+    }
+    Ok(paths)
+}
+
+#[tauri::command]
+fn get_ai_paths() -> Result<AiPaths, String> {
+    ensure_ai_dirs()
+}
+
+/// 内置运行时清单（随程序分发的 catalog，不含用户实际安装状态）
+#[tauri::command]
+fn list_ai_runtime_catalog() -> Result<serde_json::Value, String> {
+    serde_json::from_str(AI_CATALOG_JSON).map_err(|e| format!("内置运行时清单解析失败: {}", e))
+}
+
+/// 统一目录 + 清单 + 已安装运行时记录（manifests/runtime-installed.json）
+#[tauri::command]
+fn get_ai_runtime_state() -> Result<serde_json::Value, String> {
+    let paths = ensure_ai_dirs()?;
+    let installed_file = std::path::PathBuf::from(&paths.manifests).join("runtime-installed.json");
+    let installed = std::fs::read_to_string(&installed_file)
+        .ok()
+        .and_then(|content| serde_json::from_str::<serde_json::Value>(&content).ok());
+    let catalog: serde_json::Value =
+        serde_json::from_str(AI_CATALOG_JSON).map_err(|e| format!("内置运行时清单解析失败: {}", e))?;
+    Ok(serde_json::json!({
+        "paths": paths,
+        "catalog": catalog,
+        "installed": installed,
+    }))
+}
+
+/// 记录已安装运行时（安装/回滚后写入，供启动时自检）
+#[tauri::command]
+fn set_ai_runtime_installed(manifest: serde_json::Value) -> Result<String, String> {
+    let paths = ensure_ai_dirs()?;
+    let target = std::path::PathBuf::from(&paths.manifests).join("runtime-installed.json");
+    let content = serde_json::to_string_pretty(&manifest).map_err(|e| e.to_string())?;
+    std::fs::write(&target, content).map_err(|e| format!("无法写入运行时清单: {}", e))?;
+    Ok(target.to_string_lossy().to_string())
+}
+
 // ===== Audio Conversion =====
 
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -450,6 +603,47 @@ struct ModelDownloadProgress {
     total_bytes: u64,
 }
 
+/// 模型分类键 → 统一模型目录名（8.2）
+fn model_folder_name(folder: &str) -> Result<&'static str, String> {
+    match folder {
+        "checkpoints" => Ok("checkpoints"),
+        "diffusion" => Ok("diffusion_models"),
+        "clip" => Ok("text_encoders"),
+        "vae" => Ok("vae"),
+        "clipProjection" => Ok("clip_projections"),
+        "loras" => Ok("loras"),
+        "controlnet" => Ok("controlnet"),
+        _ => Err("不支持的模型目录".to_string()),
+    }
+}
+
+/// 外部 ComfyUI 目录存在时写入它的 models/，否则写入内置统一模型目录 AI/data/models
+fn resolve_model_target_dir(comfy_path: Option<&str>, folder_key: &str) -> Result<std::path::PathBuf, String> {
+    match comfy_path.map(str::trim).filter(|path| !path.is_empty()) {
+        Some(path) => {
+            let comfy_dir = std::path::PathBuf::from(path);
+            if !comfy_dir.is_dir() || !comfy_dir.join("main.py").is_file() {
+                return Err("请先选择包含 main.py 的 ComfyUI 目录".to_string());
+            }
+            Ok(comfy_dir.join("models").join(folder_key))
+        }
+        None => {
+            let paths = ensure_ai_dirs()?;
+            let base = std::path::PathBuf::from(&paths.data).join("models");
+            match folder_key {
+                "checkpoints" => Ok(base.join("checkpoints")),
+                "diffusion_models" => Ok(base.join("diffusion_models")),
+                "text_encoders" => Ok(base.join("text_encoders")),
+                "vae" => Ok(base.join("vae")),
+                "clip_projections" => Ok(base.join("clip_projections")),
+                "loras" => Ok(base.join("loras")),
+                "controlnet" => Ok(base.join("controlnet")),
+                _ => Err("不支持的模型目录".to_string()),
+            }
+        }
+    }
+}
+
 fn validate_model_download(url: &str, filename: &str, folder: &str) -> Result<(url::Url, &'static str), String> {
     let parsed = url::Url::parse(url).map_err(|_| "模型下载地址无效".to_string())?;
     let allowed = matches!(parsed.host_str(), Some("huggingface.co") | Some("hf-mirror.com"));
@@ -465,14 +659,7 @@ fn validate_model_download(url: &str, filename: &str, folder: &str) -> Result<(u
     {
         return Err("模型文件名不安全".to_string());
     }
-    let target_folder = match folder {
-        "checkpoints" => "checkpoints",
-        "diffusion" => "diffusion_models",
-        "clip" => "text_encoders",
-        "vae" => "vae",
-        "clipProjection" => "clip_projections",
-        _ => return Err("不支持的模型目录".to_string()),
-    };
+    let target_folder = model_folder_name(folder)?;
     Ok((parsed, target_folder))
 }
 
@@ -497,7 +684,7 @@ fn download_host(url: &str) -> String {
 #[tauri::command]
 async fn download_comfy_model(
     app: tauri::AppHandle,
-    comfy_path: String,
+    comfy_path: Option<String>,
     url: String,
     filename: String,
     folder: String,
@@ -506,12 +693,8 @@ async fn download_comfy_model(
     use std::io::Write;
     use tauri::Emitter;
 
-    let comfy_dir = std::path::PathBuf::from(comfy_path.trim());
-    if !comfy_dir.is_dir() || !comfy_dir.join("main.py").is_file() {
-        return Err("请先选择包含 main.py 的 ComfyUI 目录".to_string());
-    }
     let (download_url, target_folder) = validate_model_download(&url, &filename, &folder)?;
-    let target_dir = comfy_dir.join("models").join(target_folder);
+    let target_dir = resolve_model_target_dir(comfy_path.as_deref(), target_folder)?;
     std::fs::create_dir_all(&target_dir).map_err(|e| format!("无法创建模型目录: {}", e))?;
     let target = target_dir.join(&filename);
     if target.is_file() {
@@ -2482,6 +2665,7 @@ pub fn run() {
   let app = tauri::Builder::default()
     .invoke_handler(tauri::generate_handler![
     open_url, get_documents_dir, get_download_dir, get_install_lang, get_install_config, set_storage_path,
+      get_ai_paths, list_ai_runtime_catalog, get_ai_runtime_state, set_ai_runtime_installed,
       get_system_status,
       convert_audio_batch, cancel_convert, open_path, reveal_in_folder,
       read_file_bytes, write_file_bytes, write_file_chunk, exists_path, get_file_size,
