@@ -1,86 +1,185 @@
 {
   "schema": "karui.ai-runtime-catalog",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "updatedAt": "2026-09-30",
-  "note": "内置运行时清单。sha256 与 sizeBytes 为 null 时表示尚未实测，安装器会在下载完成后计算实际值并写入 AI/manifests/runtime-installed.json。",
+  "releaseApi": "https://api.github.com/repos/Comfy-Org/ComfyUI/releases/latest",
+  "note": "内置运行时清单。每个运行时有两种交付：offline 为随 AI 离线版分发的固定版本（带实测 sha256）；online 为程序内下载的最新版本，sha256 与体积在安装时从 GitHub Release API 的 digest/size 读取。",
   "runtimes": [
     {
       "id": "comfyui-windows-nvidia",
       "runtime": "comfyui",
       "name": "ComfyUI 内置运行时（NVIDIA 显卡）",
-      "channel": "stable",
       "accelerator": "cuda",
       "platforms": ["windows-x86_64"],
-      "version": "portable-latest",
-      "sizeBytes": null,
-      "sha256": null,
-      "archiveFormat": "7z",
-      "installMethod": "download-archive",
       "license": "GPL-3.0-or-later",
-      "licenseUrl": "https://github.com/comfyanonymous/ComfyUI/blob/master/LICENSE",
-      "source": "https://github.com/comfyanonymous/ComfyUI/releases/latest",
-      "url": "https://github.com/comfyanonymous/ComfyUI/releases/download/latest/ComfyUI_windows_portable_nvidia.7z",
-      "mirrors": [],
-      "extractLayout": {
-        "comfyDir": "ComfyUI_windows_portable/ComfyUI",
-        "pythonExe": "python_embeded/python.exe"
-      },
+      "licenseUrl": "https://github.com/Comfy-Org/ComfyUI/blob/master/LICENSE",
+      "source": "https://github.com/Comfy-Org/ComfyUI/releases/latest",
+      "archiveFormat": "7z",
       "entrypoint": "main.py",
       "defaultArgs": ["--listen", "127.0.0.1", "--disable-auto-launch"],
-      "minDiskBytes": 12884901888,
-      "verifyBeforeRelease": true
-    },
-    {
-      "id": "comfyui-windows-cpu",
-      "runtime": "comfyui",
-      "name": "ComfyUI 内置运行时（无独显 / CPU）",
-      "channel": "stable",
-      "accelerator": "cpu",
-      "platforms": ["windows-x86_64"],
-      "version": "portable-latest",
-      "sizeBytes": null,
-      "sha256": null,
-      "archiveFormat": "7z",
-      "installMethod": "download-archive",
-      "license": "GPL-3.0-or-later",
-      "licenseUrl": "https://github.com/comfyanonymous/ComfyUI/blob/master/LICENSE",
-      "source": "https://github.com/comfyanonymous/ComfyUI/releases/latest",
-      "url": "https://github.com/comfyanonymous/ComfyUI/releases/download/latest/ComfyUI_windows_portable_nvidia_cu121_or_cpu.7z",
-      "mirrors": [],
       "extractLayout": {
         "comfyDir": "ComfyUI_windows_portable/ComfyUI",
         "pythonExe": "python_embeded/python.exe"
       },
+      "variants": [
+        {
+          "mode": "offline",
+          "version": "v0.38.0",
+          "assetName": "ComfyUI_windows_portable_nvidia.7z",
+          "url": "https://github.com/Comfy-Org/ComfyUI/releases/download/v0.38.0/ComfyUI_windows_portable_nvidia.7z",
+          "sizeBytes": 1994326521,
+          "sha256": "8f137eac345707fd7e42bcf8e29377415243011ca15522a86aed6c77331fbd56",
+          "resolveFromApi": false
+        },
+        {
+          "mode": "online",
+          "version": "latest",
+          "assetName": "ComfyUI_windows_portable_nvidia.7z",
+          "url": "https://github.com/Comfy-Org/ComfyUI/releases/latest/download/ComfyUI_windows_portable_nvidia.7z",
+          "sizeBytes": null,
+          "sha256": null,
+          "resolveFromApi": true
+        }
+      ]
+    },
+    {
+      "id": "comfyui-windows-nvidia-cu126",
+      "runtime": "comfyui",
+      "name": "ComfyUI 内置运行时（NVIDIA 旧显卡 / CUDA 12.6）",
+      "accelerator": "cuda",
+      "platforms": ["windows-x86_64"],
+      "license": "GPL-3.0-or-later",
+      "licenseUrl": "https://github.com/Comfy-Org/ComfyUI/blob/master/LICENSE",
+      "source": "https://github.com/Comfy-Org/ComfyUI/releases/latest",
+      "archiveFormat": "7z",
       "entrypoint": "main.py",
-      "defaultArgs": ["--listen", "127.0.0.1", "--disable-auto-launch", "--cpu"],
-      "minDiskBytes": 12884901888,
-      "verifyBeforeRelease": true
+      "defaultArgs": ["--listen", "127.0.0.1", "--disable-auto-launch"],
+      "extractLayout": {
+        "comfyDir": "ComfyUI_windows_portable/ComfyUI",
+        "pythonExe": "python_embeded/python.exe"
+      },
+      "variants": [
+        {
+          "mode": "offline",
+          "version": "v0.38.0",
+          "assetName": "ComfyUI_windows_portable_nvidia_cu126.7z",
+          "url": "https://github.com/Comfy-Org/ComfyUI/releases/download/v0.38.0/ComfyUI_windows_portable_nvidia_cu126.7z",
+          "sizeBytes": 1886111296,
+          "sha256": "bd3bd7e3ce0068d8bc58fe46c912c360dd510f9bcfd0c5029d4906e6e6fbc677",
+          "resolveFromApi": false
+        },
+        {
+          "mode": "online",
+          "version": "latest",
+          "assetName": "ComfyUI_windows_portable_nvidia_cu126.7z",
+          "url": "https://github.com/Comfy-Org/ComfyUI/releases/latest/download/ComfyUI_windows_portable_nvidia_cu126.7z",
+          "sizeBytes": null,
+          "sha256": null,
+          "resolveFromApi": true
+        }
+      ]
+    },
+    {
+      "id": "comfyui-windows-amd",
+      "runtime": "comfyui",
+      "name": "ComfyUI 内置运行时（AMD 显卡）",
+      "accelerator": "rocm",
+      "platforms": ["windows-x86_64"],
+      "license": "GPL-3.0-or-later",
+      "licenseUrl": "https://github.com/Comfy-Org/ComfyUI/blob/master/LICENSE",
+      "source": "https://github.com/Comfy-Org/ComfyUI/releases/latest",
+      "archiveFormat": "7z",
+      "entrypoint": "main.py",
+      "defaultArgs": ["--listen", "127.0.0.1", "--disable-auto-launch"],
+      "extractLayout": {
+        "comfyDir": "ComfyUI_windows_portable/ComfyUI",
+        "pythonExe": "python_embeded/python.exe"
+      },
+      "variants": [
+        {
+          "mode": "offline",
+          "version": "v0.38.0",
+          "assetName": "ComfyUI_windows_portable_amd.7z",
+          "url": "https://github.com/Comfy-Org/ComfyUI/releases/download/v0.38.0/ComfyUI_windows_portable_amd.7z",
+          "sizeBytes": 1612070856,
+          "sha256": "f346e5c187b4e1647f0ea01d9978f53de1f259878656128c3296f61a5948fd1f",
+          "resolveFromApi": false
+        },
+        {
+          "mode": "online",
+          "version": "latest",
+          "assetName": "ComfyUI_windows_portable_amd.7z",
+          "url": "https://github.com/Comfy-Org/ComfyUI/releases/latest/download/ComfyUI_windows_portable_amd.7z",
+          "sizeBytes": null,
+          "sha256": null,
+          "resolveFromApi": true
+        }
+      ]
+    },
+    {
+      "id": "comfyui-windows-intel",
+      "runtime": "comfyui",
+      "name": "ComfyUI 内置运行时（Intel 显卡 / 核显）",
+      "accelerator": "xpu",
+      "platforms": ["windows-x86_64"],
+      "license": "GPL-3.0-or-later",
+      "licenseUrl": "https://github.com/Comfy-Org/ComfyUI/blob/master/LICENSE",
+      "source": "https://github.com/Comfy-Org/ComfyUI/releases/latest",
+      "archiveFormat": "7z",
+      "entrypoint": "main.py",
+      "defaultArgs": ["--listen", "127.0.0.1", "--disable-auto-launch"],
+      "extractLayout": {
+        "comfyDir": "ComfyUI_windows_portable/ComfyUI",
+        "pythonExe": "python_embeded/python.exe"
+      },
+      "variants": [
+        {
+          "mode": "offline",
+          "version": "v0.38.0",
+          "assetName": "ComfyUI_windows_portable_intel.7z",
+          "url": "https://github.com/Comfy-Org/ComfyUI/releases/download/v0.38.0/ComfyUI_windows_portable_intel.7z",
+          "sizeBytes": 1427214780,
+          "sha256": "4df593042aced1fb0b8dfdf033918c9e5d093f01c6fbb9c79fe2504350107de0",
+          "resolveFromApi": false
+        },
+        {
+          "mode": "online",
+          "version": "latest",
+          "assetName": "ComfyUI_windows_portable_intel.7z",
+          "url": "https://github.com/Comfy-Org/ComfyUI/releases/latest/download/ComfyUI_windows_portable_intel.7z",
+          "sizeBytes": null,
+          "sha256": null,
+          "resolveFromApi": true
+        }
+      ]
     },
     {
       "id": "comfyui-local-import",
       "runtime": "comfyui",
       "name": "使用已解压的 ComfyUI 便携包",
-      "channel": "manual",
       "accelerator": "auto",
       "platforms": ["windows-x86_64"],
-      "version": "user-provided",
-      "sizeBytes": null,
-      "sha256": null,
-      "archiveFormat": null,
-      "installMethod": "local-import",
       "license": "GPL-3.0-or-later",
-      "licenseUrl": "https://github.com/comfyanonymous/ComfyUI/blob/master/LICENSE",
+      "licenseUrl": "https://github.com/Comfy-Org/ComfyUI/blob/master/LICENSE",
       "source": null,
-      "url": null,
-      "mirrors": [],
+      "archiveFormat": null,
+      "entrypoint": "main.py",
+      "defaultArgs": ["--listen", "127.0.0.1", "--disable-auto-launch"],
       "extractLayout": {
         "comfyDir": "ComfyUI",
         "pythonExe": "python_embeded/python.exe"
       },
-      "entrypoint": "main.py",
-      "defaultArgs": ["--listen", "127.0.0.1", "--disable-auto-launch"],
-      "minDiskBytes": 0,
-      "verifyBeforeRelease": false
+      "variants": [
+        {
+          "mode": "local",
+          "version": "user-provided",
+          "assetName": null,
+          "url": null,
+          "sizeBytes": null,
+          "sha256": null,
+          "resolveFromApi": false
+        }
+      ]
     }
   ]
 }

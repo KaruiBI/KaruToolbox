@@ -560,6 +560,575 @@ fn get_ai_runtime_state() -> Result<serde_json::Value, String> {
     }))
 }
 
+/// 内置运行时：下载 / 校验 / 解压 / 切换 / 回滚 / 启动（阶段 A 第 4 步）
+static AI_RUNTIME_CANCEL: AtomicBool = AtomicBool::new(false);
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AiRuntimeProgress {
+    runtime_id: String,
+    phase: String,
+    downloaded_bytes: u64,
+    total_bytes: u64,
+    message: String,
+}
+
+fn emit_runtime_progress(app: &tauri::AppHandle, payload: AiRuntimeProgress) {
+    use tauri::Emitter;
+    let _ = app.emit("ai-runtime-install-progress", payload);
+}
+
+fn catalog_runtime(catalog: &serde_json::Value, runtime_id: &str) -> Result<serde_json::Value, String> {
+    catalog
+        .get("runtimes")
+        .and_then(|value| value.as_array())
+        .and_then(|list| {
+            list.iter()
+                .find(|item| item.get("id").and_then(|v| v.as_str()) == Some(runtime_id))
+                .cloned()
+        })
+        .ok_or_else(|| format!("未找到运行时 {}", runtime_id))
+}
+
+fn catalog_variant(runtime: &serde_json::Value, mode: &str) -> Result<serde_json::Value, String> {
+    runtime
+        .get("variants")
+        .and_then(|value| value.as_array())
+        .and_then(|list| {
+            list.iter()
+                .find(|item| item.get("mode").and_then(|v| v.as_str()) == Some(mode))
+                .cloned()
+        })
+        .ok_or_else(|| format!("运行时 {} 不支持 {} 方式", runtime.get("id").and_then(|v| v.as_str()).unwrap_or("?"), mode))
+}
+
+fn sha256_file(path: &std::path::Path) -> Result<String, String> {
+    use sha2::{Digest, Sha256};
+    let mut file = std::fs::File::open(path).map_err(|e| format!("无法打开文件: {}", e))?;
+    let mut hasher = Sha256::new();
+    std::io::copy(&mut file, &mut hasher).map_err(|e| format!("读取文件失败: {}", e))?;
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+/// 在线安装前解析最新 release：返回（下载地址、体积、sha256）
+async fn resolve_latest_asset(api_url: &str, asset_name: &str) -> Option<(String, Option<u64>, Option<String>)> {
+    let client = build_download_client(None).ok()?;
+    let response = client
+        .get(api_url)
+        .header("User-Agent", "KaruiToolbox")
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await
+        .ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+    let payload: serde_json::Value = response.json().await.ok()?;
+    let assets = payload.get("assets")?.as_array()?;
+    let asset = assets
+        .iter()
+        .find(|item| item.get("name").and_then(|v| v.as_str()) == Some(asset_name))?;
+    let url = asset.get("browser_download_url")?.as_str()?.to_string();
+    let size = asset.get("size").and_then(|v| v.as_u64());
+    let sha256 = asset
+        .get("digest")
+        .and_then(|v| v.as_str())
+        .and_then(|digest| digest.strip_prefix("sha256:"))
+        .map(str::to_string);
+    Some((url, size, sha256))
+}
+
+async fn download_runtime_archive(
+    app: &tauri::AppHandle,
+    runtime_id: &str,
+    url: &str,
+    target: &std::path::Path,
+) -> Result<u64, String> {
+    use std::io::Write;
+
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("无法创建下载目录: {}", e))?;
+    }
+    let partial = std::path::PathBuf::from(format!("{}.part", target.to_string_lossy()));
+    let existing = std::fs::metadata(&partial).map(|value| value.len()).unwrap_or(0);
+
+    let env_proxy = ["HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"]
+        .iter()
+        .find_map(|key| std::env::var(key).ok().filter(|value| !value.trim().is_empty()));
+    let mut candidates: Vec<(String, Option<String>)> = vec![(url.to_string(), env_proxy.clone())];
+    for port in ["7890", "10809", "1080"] {
+        let proxy = Some(format!("http://127.0.0.1:{port}"));
+        if !candidates.iter().any(|(existing_url, existing_proxy)| *existing_url == url && *existing_proxy == proxy) {
+            candidates.push((url.to_string(), proxy));
+        }
+    }
+
+    let mut last_error = String::new();
+    let mut response = None;
+    for (candidate_url, candidate_proxy) in &candidates {
+        let client = match build_download_client(candidate_proxy.as_deref()) {
+            Ok(value) => value,
+            Err(error) => {
+                last_error = error;
+                continue;
+            }
+        };
+        let mut request = client.get(candidate_url);
+        if existing > 0 {
+            request = request.header(reqwest::header::RANGE, format!("bytes={}-", existing));
+        }
+        match request.send().await {
+            Ok(result) => {
+                if result.status() == reqwest::StatusCode::PARTIAL_CONTENT || result.status().is_success() {
+                    response = Some(result);
+                    break;
+                }
+                last_error = format!("下载失败，状态码 {}", result.status());
+            }
+            Err(error) => last_error = format!("{}", error),
+        }
+    }
+    let Some(mut response) = response else {
+        return Err(format!("运行时下载失败：{}", last_error));
+    };
+
+    let total = response
+        .content_length()
+        .map(|value| value + existing)
+        .unwrap_or(0);
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&partial)
+        .map_err(|e| format!("无法写入临时文件: {}", e))?;
+    let mut downloaded = existing;
+    let mut last_emit = std::time::Instant::now();
+
+    while let Some(chunk) = response.chunk().await.map_err(|e| format!("下载中断: {}", e))? {
+        if AI_RUNTIME_CANCEL.load(Ordering::SeqCst) {
+            return Err("已取消运行时下载".to_string());
+        }
+        file.write_all(&chunk).map_err(|e| format!("写入失败: {}", e))?;
+        downloaded += chunk.len() as u64;
+        if last_emit.elapsed() >= std::time::Duration::from_millis(500) {
+            last_emit = std::time::Instant::now();
+            emit_runtime_progress(app, AiRuntimeProgress {
+                runtime_id: runtime_id.to_string(),
+                phase: "downloading".to_string(),
+                downloaded_bytes: downloaded,
+                total_bytes: total,
+                message: String::new(),
+            });
+        }
+    }
+    file.flush().map_err(|e| format!("写入失败: {}", e))?;
+    drop(file);
+    std::fs::rename(&partial, target).map_err(|e| format!("无法完成下载文件: {}", e))?;
+    Ok(downloaded)
+}
+
+fn ai_runtime_target_dir(paths: &AiPaths, runtime_id: &str, version: &str) -> std::path::PathBuf {
+    std::path::PathBuf::from(&paths.runtime).join(format!("{}-{}", runtime_id, version))
+}
+
+#[tauri::command]
+async fn install_ai_runtime(
+    app: tauri::AppHandle,
+    runtime_id: String,
+    mode: String,
+    archive_path: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let paths = ensure_ai_dirs()?;
+    let catalog: serde_json::Value =
+        serde_json::from_str(AI_CATALOG_JSON).map_err(|e| format!("内置运行时清单解析失败: {}", e))?;
+    let runtime = catalog_runtime(&catalog, &runtime_id)?;
+    let variant = catalog_variant(&runtime, &mode)?;
+    let version = variant
+        .get("version")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    AI_RUNTIME_CANCEL.store(false, Ordering::SeqCst);
+
+    // 本地导入：直接使用已解压的 ComfyUI 便携包，不下载也不解压
+    if mode == "local" {
+        let source = std::path::PathBuf::from(archive_path.clone().unwrap_or_default());
+        if !source.join("main.py").is_file() {
+            return Err("请选择包含 main.py 的 ComfyUI 目录".to_string());
+        }
+        let python_exe = source
+            .parent()
+            .map(|parent| parent.join("python_embeded").join("python.exe"))
+            .filter(|path| path.is_file())
+            .or_else(|| {
+                let local = source.join("python_embeded").join("python.exe");
+                if local.is_file() { Some(local) } else { None }
+            });
+        let manifest = serde_json::json!({
+            "runtimeId": runtime_id,
+            "mode": "local",
+            "version": version,
+            "installedAt": chrono_like_now(),
+            "comfyDir": source.to_string_lossy(),
+            "pythonExe": python_exe.map(|p| p.to_string_lossy().to_string()),
+            "sha256": null,
+            "sizeBytes": null,
+            "license": runtime.get("license"),
+            "previous": null,
+        });
+        write_runtime_manifest(&paths, &manifest)?;
+        return Ok(manifest);
+    }
+
+    // 归档来源：离线包（随安装包分发）优先，其次程序内下载
+    let asset_name = variant.get("assetName").and_then(|v| v.as_str()).unwrap_or("runtime.7z");
+    let archive = if let Some(path) = archive_path.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
+        let candidate = std::path::PathBuf::from(path);
+        if !candidate.is_file() {
+            return Err("离线运行时包不存在".to_string());
+        }
+        candidate
+    } else {
+        let mut url = variant
+            .get("url")
+            .and_then(|v| v.as_str())
+            .ok_or("运行时缺少下载地址")?
+            .to_string();
+        let mut expected_sha = variant.get("sha256").and_then(|v| v.as_str()).map(str::to_string);
+        let mut expected_size = variant.get("sizeBytes").and_then(|v| v.as_u64());
+
+        // 在线方式：先向 GitHub Release API 询问最新版本与校验值
+        if variant.get("resolveFromApi").and_then(|v| v.as_bool()).unwrap_or(false) {
+            let api_url = catalog.get("releaseApi").and_then(|v| v.as_str()).unwrap_or_default();
+            if !api_url.is_empty() {
+                if let Some((latest_url, latest_size, latest_sha)) = resolve_latest_asset(api_url, asset_name).await {
+                    url = latest_url;
+                    if latest_size.is_some() { expected_size = latest_size; }
+                    if latest_sha.is_some() { expected_sha = latest_sha; }
+                }
+            }
+        }
+
+        let target = std::path::PathBuf::from(&paths.cache).join(asset_name);
+        let size = download_runtime_archive(&app, &runtime_id, &url, &target).await?;
+        if let Some(expected) = expected_size {
+            if expected > 0 && size != expected {
+                return Err(format!("运行时包大小不一致：期望 {} 字节，实际 {} 字节", expected, size));
+            }
+        }
+        if let Some(expected) = expected_sha.clone() {
+            emit_runtime_progress(&app, AiRuntimeProgress {
+                runtime_id: runtime_id.clone(),
+                phase: "verifying".to_string(),
+                downloaded_bytes: size,
+                total_bytes: size,
+                message: String::new(),
+            });
+            let actual = sha256_file(&target)?;
+            if !actual.eq_ignore_ascii_case(&expected) {
+                let _ = std::fs::remove_file(&target);
+                return Err("运行时包校验失败，文件可能已损坏".to_string());
+            }
+        }
+        target
+    };
+
+    let actual_sha = sha256_file(&archive)?;
+    let actual_size = std::fs::metadata(&archive).map(|value| value.len()).unwrap_or(0);
+
+    // 解压到暂存目录，校验通过后再整体切换，避免半包运行时
+    emit_runtime_progress(&app, AiRuntimeProgress {
+        runtime_id: runtime_id.clone(),
+        phase: "extracting".to_string(),
+        downloaded_bytes: actual_size,
+        total_bytes: actual_size,
+        message: String::new(),
+    });
+    let staging = std::path::PathBuf::from(&paths.runtime).join(format!(".staging-{}-{}", runtime_id, version));
+    if staging.exists() {
+        let _ = std::fs::remove_dir_all(&staging);
+    }
+    std::fs::create_dir_all(&staging).map_err(|e| format!("无法创建暂存目录: {}", e))?;
+    {
+        let archive_clone = archive.clone();
+        let staging_clone = staging.clone();
+        tokio::task::spawn_blocking(move || {
+            if archive_clone.extension().and_then(|value| value.to_str()) == Some("zip") {
+                extract_zip_archive(&archive_clone, &staging_clone)
+            } else {
+                sevenz_rust::decompress_file(&archive_clone, &staging_clone).map_err(|e| format!("解压失败: {}", e))
+            }
+        })
+        .await
+        .map_err(|e| format!("解压任务失败: {}", e))??;
+    }
+
+    let layout_comfy = runtime
+        .get("extractLayout")
+        .and_then(|v| v.get("comfyDir"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("ComfyUI");
+    let layout_python = runtime
+        .get("extractLayout")
+        .and_then(|v| v.get("pythonExe"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("python_embeded/python.exe");
+
+    let comfy_dir = staging.join(layout_comfy);
+    if !comfy_dir.join("main.py").is_file() {
+        let _ = std::fs::remove_dir_all(&staging);
+        return Err("解压后未找到 ComfyUI 主程序，运行时包结构可能已变化".to_string());
+    }
+    let python_exe = staging.join(layout_python);
+    if !python_exe.is_file() {
+        let _ = std::fs::remove_dir_all(&staging);
+        return Err("解压后未找到内置 Python，运行时包结构可能已变化".to_string());
+    }
+
+    // 切换：旧版本留作 previous 以便回滚
+    let target_dir = ai_runtime_target_dir(&paths, &runtime_id, &version);
+    let previous_dir = std::path::PathBuf::from(format!("{}.previous", target_dir.to_string_lossy()));
+    let previous_manifest = read_runtime_manifest(&paths);
+    if target_dir.exists() {
+        if previous_dir.exists() {
+            let _ = std::fs::remove_dir_all(&previous_dir);
+        }
+        std::fs::rename(&target_dir, &previous_dir).map_err(|e| format!("无法备份旧运行时: {}", e))?;
+    }
+    std::fs::rename(&staging, &target_dir).map_err(|e| format!("无法启用新运行时: {}", e))?;
+    let _ = std::fs::remove_dir_all(&staging);
+    write_extra_model_paths(&paths, &target_dir.join(layout_comfy))?;
+
+    let manifest = serde_json::json!({
+        "runtimeId": runtime_id,
+        "mode": mode,
+        "version": version,
+        "installedAt": chrono_like_now(),
+        "comfyDir": target_dir.join(layout_comfy).to_string_lossy(),
+        "pythonExe": target_dir.join(layout_python).to_string_lossy(),
+        "sha256": actual_sha,
+        "sizeBytes": actual_size,
+        "license": runtime.get("license"),
+        "previous": previous_manifest.and_then(|value| {
+            let dir = value.get("comfyDir").and_then(|v| v.as_str()).map(str::to_string);
+            dir.filter(|path| std::path::Path::new(path).exists()).map(|path| {
+                serde_json::json!({
+                    "runtimeId": value.get("runtimeId").cloned(),
+                    "version": value.get("version").cloned(),
+                    "comfyDir": path,
+                    "pythonExe": value.get("pythonExe").cloned(),
+                })
+            })
+        }),
+    });
+    write_runtime_manifest(&paths, &manifest)?;
+
+    emit_runtime_progress(&app, AiRuntimeProgress {
+        runtime_id,
+        phase: "done".to_string(),
+        downloaded_bytes: actual_size,
+        total_bytes: actual_size,
+        message: String::new(),
+    });
+    Ok(manifest)
+}
+
+/// 让内置 ComfyUI 读取统一模型目录：在便携包内写入 extra_model_paths.yaml。
+/// custom_nodes 暂随运行时目录，后续阶段再迁到 AI/data。
+fn write_extra_model_paths(paths: &AiPaths, comfy_dir: &std::path::Path) -> Result<(), String> {
+    if !comfy_dir.is_dir() {
+        return Ok(());
+    }
+    let base = std::path::PathBuf::from(&paths.data).to_string_lossy().replace('\'', "");
+    let content = format!(
+        "karui_unified:\n    base_path: '{}'\n    checkpoints: models/checkpoints\n    diffusion_models: models/diffusion_models\n    text_encoders: models/text_encoders\n    clip_vision: models/clip_vision\n    vae: models/vae\n    loras: models/loras\n    controlnet: models/controlnet\n    clip_projections: models/clip_projections\n",
+        base
+    );
+    std::fs::write(comfy_dir.join("extra_model_paths.yaml"), content)
+        .map_err(|e| format!("无法写入模型路径配置: {}", e))
+}
+
+fn extract_zip_archive(archive: &std::path::Path, dest: &std::path::Path) -> Result<(), String> {
+    let file = std::fs::File::open(archive).map_err(|e| format!("无法打开压缩包: {}", e))?;
+    let mut zip = zip::ZipArchive::new(file).map_err(|e| format!("无法读取压缩包: {}", e))?;
+    for index in 0..zip.len() {
+        let mut entry = zip.by_index(index).map_err(|e| format!("压缩包条目读取失败: {}", e))?;
+        let Some(enclosed) = entry.enclosed_name() else { continue };
+        let output = dest.join(enclosed);
+        if entry.is_dir() {
+            std::fs::create_dir_all(&output).map_err(|e| format!("无法创建目录: {}", e))?;
+        } else {
+            if let Some(parent) = output.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| format!("无法创建目录: {}", e))?;
+            }
+            let mut target = std::fs::File::create(&output).map_err(|e| format!("无法写入文件: {}", e))?;
+            std::io::copy(&mut entry, &mut target).map_err(|e| format!("解压失败: {}", e))?;
+        }
+    }
+    Ok(())
+}
+
+fn read_runtime_manifest(paths: &AiPaths) -> Option<serde_json::Value> {
+    let file = std::path::PathBuf::from(&paths.manifests).join("runtime-installed.json");
+    std::fs::read_to_string(file)
+        .ok()
+        .and_then(|content| serde_json::from_str::<serde_json::Value>(&content).ok())
+}
+
+fn write_runtime_manifest(paths: &AiPaths, manifest: &serde_json::Value) -> Result<(), String> {
+    let target = std::path::PathBuf::from(&paths.manifests).join("runtime-installed.json");
+    let content = serde_json::to_string_pretty(manifest).map_err(|e| e.to_string())?;
+    std::fs::write(&target, content).map_err(|e| format!("无法写入运行时清单: {}", e))
+}
+
+fn chrono_like_now() -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|value| value.as_secs())
+        .unwrap_or(0);
+    format!("{}", now)
+}
+
+/// 回滚到上一个可运行的运行时版本
+#[tauri::command]
+fn rollback_ai_runtime() -> Result<serde_json::Value, String> {
+    let paths = ensure_ai_dirs()?;
+    let current = read_runtime_manifest(&paths).ok_or("尚未安装内置运行时")?;
+    let previous = current
+        .get("previous")
+        .cloned()
+        .filter(|value| !value.is_null())
+        .ok_or("没有可回滚的版本")?;
+    let previous_dir = previous
+        .get("comfyDir")
+        .and_then(|v| v.as_str())
+        .ok_or("可回滚版本缺少目录")?;
+    if !std::path::Path::new(previous_dir).join("main.py").is_file() {
+        return Err("可回滚版本已损坏".to_string());
+    }
+    write_runtime_manifest(&paths, &previous)?;
+    Ok(previous)
+}
+
+#[tauri::command]
+fn cancel_ai_runtime_install() {
+    AI_RUNTIME_CANCEL.store(true, Ordering::SeqCst);
+}
+
+/// AI 离线版：查找随安装包分发在 resources/ai-runtime 下的运行时归档
+#[tauri::command]
+fn find_bundled_ai_runtime(runtime_id: String, mode: String) -> Result<Option<String>, String> {
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let dir = exe.parent().ok_or("Cannot find exe directory")?.to_path_buf();
+    let catalog: serde_json::Value =
+        serde_json::from_str(AI_CATALOG_JSON).map_err(|e| format!("内置运行时清单解析失败: {}", e))?;
+    let runtime = catalog_runtime(&catalog, &runtime_id)?;
+    let variant = catalog_variant(&runtime, &mode)?;
+    let Some(asset_name) = variant.get("assetName").and_then(|v| v.as_str()) else {
+        return Ok(None);
+    };
+    let candidate = dir.join("resources").join("ai-runtime").join(asset_name);
+    if candidate.is_file() {
+        Ok(Some(candidate.to_string_lossy().to_string()))
+    } else {
+        Ok(None)
+    }
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AiRuntimeStartInfo {
+    running: bool,
+    pid: u32,
+    port: u16,
+    base_url: String,
+    version: String,
+}
+
+/// 启动内置运行时：使用统一模型目录（extra_model_paths.yaml）与统一输出目录。
+/// 与 start_comfy_local 的区别是后者面向用户自己那份外部 ComfyUI。
+#[tauri::command]
+fn start_ai_runtime(port: Option<u16>, low_vram: Option<bool>) -> Result<AiRuntimeStartInfo, String> {
+    let paths = ensure_ai_dirs()?;
+    let manifest = read_runtime_manifest(&paths).ok_or("尚未安装内置运行时")?;
+    let comfy_dir = std::path::PathBuf::from(
+        manifest
+            .get("comfyDir")
+            .and_then(|v| v.as_str())
+            .ok_or("运行时清单缺少目录")?,
+    );
+    if !comfy_dir.join("main.py").is_file() {
+        return Err("内置运行时已损坏，请重新安装".to_string());
+    }
+    let python_exe = manifest
+        .get("pythonExe")
+        .and_then(|v| v.as_str())
+        .filter(|path| !path.trim().is_empty())
+        .map(std::path::PathBuf::from)
+        .filter(|path| path.is_file())
+        .ok_or("内置运行时缺少可用的 Python")?;
+
+    let mut managed_child = COMFY_CHILD.lock().map_err(|_| "无法读取 ComfyUI 进程状态".to_string())?;
+    if let Some(child) = managed_child.as_mut() {
+        match child.try_wait() {
+            Ok(None) => {
+                return Ok(AiRuntimeStartInfo {
+                    running: true,
+                    pid: child.id(),
+                    port: port.unwrap_or(8188),
+                    base_url: format!("http://127.0.0.1:{}", port.unwrap_or(8188)),
+                    version: manifest.get("version").and_then(|v| v.as_str()).unwrap_or("unknown").to_string(),
+                });
+            }
+            Ok(Some(_)) => *managed_child = None,
+            Err(error) => return Err(format!("无法检查 ComfyUI 进程状态: {}", error)),
+        }
+    }
+
+    let start = port.unwrap_or(8188);
+    let chosen = (start..start.saturating_add(40))
+        .find(|candidate| {
+            let address = std::net::SocketAddr::from(([127, 0, 0, 1], *candidate));
+            std::net::TcpStream::connect_timeout(&address, std::time::Duration::from_millis(200)).is_err()
+        })
+        .ok_or("没有可用端口".to_string())?;
+
+    std::fs::create_dir_all(&paths.logs).map_err(|e| format!("无法创建日志目录: {}", e))?;
+    let log_path = std::path::PathBuf::from(&paths.logs).join("comfyui.log");
+    let stdout = std::fs::File::create(&log_path).map_err(|e| format!("无法写入日志: {}", e))?;
+    let stderr = stdout.try_clone().map_err(|e| format!("无法写入日志: {}", e))?;
+
+    let mut command = std::process::Command::new(python_exe);
+    command
+        .current_dir(&comfy_dir)
+        .arg("main.py")
+        .args(["--listen", "127.0.0.1", "--port", &chosen.to_string(), "--disable-auto-launch"])
+        .args(["--output-directory", &std::path::PathBuf::from(&paths.output).to_string_lossy()])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::from(stdout))
+        .stderr(std::process::Stdio::from(stderr));
+    if low_vram.unwrap_or(false) {
+        command.args(["--lowvram", "--fp16-vae"]);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    let child = command.spawn().map_err(|e| format!("启动内置运行时失败: {}", e))?;
+    let pid = child.id();
+    *managed_child = Some(child);
+
+    Ok(AiRuntimeStartInfo {
+        running: true,
+        pid,
+        port: chosen,
+        base_url: format!("http://127.0.0.1:{}", chosen),
+        version: manifest.get("version").and_then(|v| v.as_str()).unwrap_or("unknown").to_string(),
+    })
+}
+
 /// 记录已安装运行时（安装/回滚后写入，供启动时自检）
 #[tauri::command]
 fn set_ai_runtime_installed(manifest: serde_json::Value) -> Result<String, String> {
@@ -2666,6 +3235,8 @@ pub fn run() {
     .invoke_handler(tauri::generate_handler![
     open_url, get_documents_dir, get_download_dir, get_install_lang, get_install_config, set_storage_path,
       get_ai_paths, list_ai_runtime_catalog, get_ai_runtime_state, set_ai_runtime_installed,
+      install_ai_runtime, cancel_ai_runtime_install, rollback_ai_runtime, start_ai_runtime,
+      find_bundled_ai_runtime,
       get_system_status,
       convert_audio_batch, cancel_convert, open_path, reveal_in_folder,
       read_file_bytes, write_file_bytes, write_file_chunk, exists_path, get_file_size,

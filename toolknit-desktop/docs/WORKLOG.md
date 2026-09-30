@@ -194,7 +194,20 @@ Rust cargo check --offline：通过（仅保留 2 个既有 unused import 警告
 
 验证：Rust `cargo check` 通过（仅保留既有 `CommandExt` 未使用警告）；catalog JSON 解析通过。
 
-尚未实现：内置运行时的下载、校验、安装、启动与回滚（阶段 A 第 4 步），以及前端模型中心切换到统一目录的 UI。
+尚未实现：前端模型中心切换到统一目录的 UI，以及 AI 离线版的打包脚本。
+
+### 2026-09-30：阶段 A 第 4 步（内置运行时安装、校验、启动、回滚）
+
+- catalog 升级到 schemaVersion 2：每个运行时提供两种交付，`offline` 固定版本（ComfyUI v0.38.0，四个平台包均带实测 size 与 GitHub 发布的 sha256）与 `online` 最新版本（URL 用 `releases/latest/download`，安装前先查 GitHub Release API 取实际 size 与 digest）；
+- 新增依赖 `sevenz-rust`（官方便携包是 7z）与 `sha2`；
+- 新增命令：`install_ai_runtime`（下载/校验/解压/暂存/原子切换）、`cancel_ai_runtime_install`、`rollback_ai_runtime`、`start_ai_runtime`、`find_bundled_ai_runtime`；
+- 安装流程：先下载到 `AI/cache` 并支持断点续传与代理回退 → 校验 sha256（无预置值时计算并记录）→ 解压到 `.staging` → 校验 `main.py` 与 `python_embeded/python.exe` → 旧版本改名为 `.previous` 后整体切换 → 写 `manifests/runtime-installed.json`（含 previous 供回滚）；
+- 统一模型目录：安装后在便携包内写入 `extra_model_paths.yaml` 指向 `AI/data/models`；启动时传 `--output-directory AI/data/output`，端口自动避让 8188 起的占用；
+- AI 离线版约定：把对应 7z 放在 exe 旁 `resources/ai-runtime/`，`find_bundled_ai_runtime` 自动识别，安装时无需联网。
+
+验证：Rust `cargo check` 通过（仅保留既有 `CommandExt` 未使用警告）；catalog JSON 校验通过（5 个运行时 × offline/online）。
+
+尚未实现：前端引擎安装与状态 UI、离线版打包脚本、真实 NVIDIA 机器上的离线出图闭环（阶段 A 第 5 步）。
 
 ## 当前风险与技术债
 
