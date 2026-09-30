@@ -1159,6 +1159,71 @@ async fn download_runtime_archive(
     Ok((total, chosen.url))
 }
 
+/// 解压运行时包：优先用系统自带工具（Windows 的 tar.exe 基于 libarchive，支持 7z/zip，
+/// 比 Rust 解压库可靠得多），7-Zip 次之，内置库兜底
+fn extract_archive_best_effort(archive: &std::path::Path, staging: &std::path::Path) -> Result<(), String> {
+    let run_quiet = |command: &mut std::process::Command| -> Result<std::process::Output, String> {
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(0x08000000);
+        }
+        command.output().map_err(|error| format!("{}", error))
+    };
+    let reset_staging = || {
+        let _ = std::fs::remove_dir_all(staging);
+        let _ = std::fs::create_dir_all(staging);
+    };
+
+    // 1) Windows 自带 tar.exe
+    let tar_exe = std::path::PathBuf::from("C:\\Windows\\System32\\tar.exe");
+    if tar_exe.is_file() {
+        std::fs::create_dir_all(staging).map_err(|e| format!("无法创建暂存目录: {}", e))?;
+        let mut command = std::process::Command::new(&tar_exe);
+        command.arg("-xf").arg(archive).arg("-C").arg(staging);
+        match run_quiet(&mut command) {
+            Ok(output) if output.status.success() => return Ok(()),
+            output => {
+                if let Ok(result) = output {
+                    let stderr = String::from_utf8_lossy(&result.stderr);
+                    if !stderr.trim().is_empty() {
+                        let _ = std::fs::write(
+                            staging.with_file_name("extract-tar.log"),
+                            stderr.as_bytes(),
+                        );
+                    }
+                }
+                reset_staging();
+            }
+        }
+    }
+
+    // 2) 已安装的 7-Zip
+    for seven_zip in [
+        "C:\\Program Files\\7-Zip\\7z.exe",
+        "C:\\Program Files (x86)\\7-Zip\\7z.exe",
+    ] {
+        let path = std::path::PathBuf::from(seven_zip);
+        if !path.is_file() {
+            continue;
+        }
+        let mut command = std::process::Command::new(&path);
+        command
+            .arg("x")
+            .arg("-y")
+            .arg(format!("-o{}", staging.display()))
+            .arg(archive);
+        match run_quiet(&mut command) {
+            Ok(output) if output.status.success() => return Ok(()),
+            _ => reset_staging(),
+        }
+    }
+
+    // 3) 内置解压库兜底
+    std::fs::create_dir_all(staging).map_err(|e| format!("无法创建暂存目录: {}", e))?;
+    sevenz_rust2::decompress_file(archive, staging).map_err(|e| format!("解压失败: {}", e))
+}
+
 /// 检查 7z / zip 文件头，提前挡住损坏或非压缩包的下载内容
 fn archive_signature_ok(path: &std::path::Path) -> Result<(), String> {
     use std::io::Read;
@@ -1337,12 +1402,7 @@ async fn install_ai_runtime(
         let archive_clone = archive.clone();
         let staging_clone = staging.clone();
         let outcome = tokio::task::spawn_blocking(move || {
-            if archive_clone.extension().and_then(|value| value.to_str()) == Some("zip") {
-                extract_zip_archive(&archive_clone, &staging_clone)
-            } else {
-                sevenz_rust2::decompress_file(&archive_clone, &staging_clone)
-                    .map_err(|e| format!("解压失败: {}", e))
-            }
+            extract_archive_best_effort(&archive_clone, &staging_clone)
         })
         .await
         .map_err(|e| {
@@ -1442,6 +1502,7 @@ fn write_extra_model_paths(paths: &AiPaths, comfy_dir: &std::path::Path) -> Resu
         .map_err(|e| format!("无法写入模型路径配置: {}", e))
 }
 
+#[allow(dead_code)]
 fn extract_zip_archive(archive: &std::path::Path, dest: &std::path::Path) -> Result<(), String> {
     let file = std::fs::File::open(archive).map_err(|e| format!("无法打开压缩包: {}", e))?;
     let mut zip = zip::ZipArchive::new(file).map_err(|e| format!("无法读取压缩包: {}", e))?;

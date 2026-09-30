@@ -295,7 +295,15 @@ Rust cargo check --offline：通过（仅保留 2 个既有 unused import 警告
 - 续传时校验 `Content-Range` 起始偏移与请求一致，否则换源；
 - 校验失败时同时清理下载文件与续传记录，提示重新安装。
 
-验证：Rust `cargo check` 通过。
+补充（同日）：解压改用系统 tar.exe，并已在本机完成首次安装。
+
+- 用户缓存中的 7z 包 sha256 与官方值完全一致（文件是好的），崩溃纯属旧解压库；
+- 解压策略改为：系统 `tar.exe`（libarchive，已实测能完整解压官方 1.9GB 包，
+  解压出 4.38GB 含 main.py 与 python_embeded）→ 已安装的 7-Zip → 内置库兜底；
+- 已在本机把解压结果登记为正式安装（`AI/runtime/comfyui-windows-nvidia-v0.38.0`，
+  写入 extra_model_paths.yaml 与 manifests/runtime-installed.json）。
+
+验证：缓存包 sha256 = 8f137eac…fbd56 与 GitHub digest 一致；tar 解压后 main.py 与 python_embeded/python.exe 均存在。
 
 修复（同日）：解压崩溃（`attempt to add with overflow`）与下载可靠性。
 
