@@ -2731,11 +2731,19 @@ elements.builtinRuntime?.addEventListener('change', () => {
 elements.installBuiltin?.addEventListener('click', () => installBuiltinRuntime('offline'));
 elements.installBuiltinLatest?.addEventListener('click', async () => {
   // 浏览器下载到用户自己的下载位置，下完解压后从「导入已解压目录」导入
-  await openDownloadUrl('https://github.com/Comfy-Org/ComfyUI/releases/latest');
-  setBuiltinStatus('idle', builtinText(
-    '浏览器已打开官方下载页，下载解压后点「导入已解压目录」（详见下方教程）',
-    'The official download page is open in your browser. After extracting, use Import extracted folder (see the tutorial below)',
-  ));
+  const page = 'https://github.com/Comfy-Org/ComfyUI/releases/latest';
+  try {
+    await openDownloadUrl(page);
+    setBuiltinStatus('idle', builtinText(
+      '浏览器已打开官方下载页，下载解压后点「导入已解压目录」（详见下方教程）',
+      'The official download page is open in your browser. After extracting, use Import extracted folder (see the tutorial below)',
+    ));
+  } catch (error) {
+    setBuiltinStatus('error', builtinText(
+      `打开下载页失败：${error?.message || error}。可直接复制这个网址到浏览器：${page}`,
+      `Failed to open the page: ${error?.message || error}. Copy this URL into your browser: ${page}`,
+    ));
+  }
 });
 elements.installBuiltinFromFile?.addEventListener('click', () => {
   installBuiltinFromLocalFile().catch((error) => setBuiltinStatus('error', error?.message || String(error)));

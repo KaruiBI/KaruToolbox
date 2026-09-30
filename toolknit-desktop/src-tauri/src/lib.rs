@@ -300,8 +300,29 @@ fn open_url(url: String) -> Result<(), String> {
   let parsed = url::Url::parse(&url).map_err(|e| format!("Invalid URL: {}", e))?;
   match parsed.scheme() {
     "http" | "https" => {
-      let _ = opener::open(&url);
-      Ok(())
+      if opener::open(&url).is_ok() {
+        return Ok(());
+      }
+      // opener 静默失败时（常见于默认浏览器关联异常），逐级兜底
+      #[cfg(target_os = "windows")]
+      {
+        use std::os::windows::process::CommandExt;
+        let start = std::process::Command::new("cmd")
+            .args(["/C", "start", "", &url])
+            .creation_flags(0x08000000)
+            .status();
+        if start.map(|status| status.success()).unwrap_or(false) {
+            return Ok(());
+        }
+        let explorer = std::process::Command::new("explorer.exe")
+            .arg(&url)
+            .creation_flags(0x08000000)
+            .status();
+        if explorer.map(|status| status.success()).unwrap_or(false) {
+            return Ok(());
+        }
+      }
+      Err("无法打开浏览器，请手动复制链接到浏览器打开".to_string())
     }
     _ => Err(format!("Unsupported URL scheme: {}", parsed.scheme())),
   }
