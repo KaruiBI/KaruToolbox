@@ -64,6 +64,7 @@ const elements = {
     builtinProgressFill: document.getElementById('comfyBuiltinProgressFill'),
     builtinProgressText: document.getElementById('comfyBuiltinProgressText'),
     installBuiltin: document.getElementById('comfyInstallBuiltin'),
+    cancelBuiltinInstall: document.getElementById('comfyCancelBuiltinInstall'),
     installBuiltinLatest: document.getElementById('comfyInstallBuiltinLatest'),
     startBuiltin: document.getElementById('comfyStartBuiltin'),
     rollbackBuiltin: document.getElementById('comfyRollbackBuiltin'),
@@ -245,6 +246,7 @@ let lastHardwareStatus = null;
 let modelDownloadActive = false;
 let builtinInstallActive = false;
 let builtinRuntimeTouched = false;
+let builtinProgressSample = { bytes: 0, time: 0 };
 
 function loadConfig() {
     const fallback = {
@@ -1192,17 +1194,51 @@ function hideBuiltinProgress () {
   if (elements.builtinProgress) elements.builtinProgress.hidden = true;
 }
 
+function formatDuration (seconds) {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '';
+  const total = Math.round(seconds);
+  const minutes = Math.floor(total / 60);
+  const secs = total % 60;
+  if (minutes <= 0) return builtinText(`${secs} 秒`, `${secs}s`);
+  return builtinText(`${minutes} 分 ${secs} 秒`, `${minutes}m ${secs}s`);
+}
+
 function builtinPhaseText (phase, payload) {
   const downloaded = Number(payload?.downloadedBytes) || 0;
   const total = Number(payload?.totalBytes) || 0;
-  const size = total > 0 ? `${formatBytes(downloaded)} / ${formatBytes(total)}` : formatBytes(downloaded);
-  const map = {
-    downloading: builtinText(`正在下载内置引擎… ${size}`, `Downloading built-in engine… ${size}`),
-    verifying: builtinText('正在校验文件完整性…', 'Verifying file integrity…'),
-    extracting: builtinText('正在解压，这一步比较慢，请耐心等待…', 'Extracting, this takes a while…'),
-    done: builtinText('内置引擎安装完成', 'Built-in engine installed'),
-  };
-  return map[phase] || builtinText('正在准备…', 'Preparing…');
+
+  if (phase !== 'downloading') builtinProgressSample = { bytes: 0, time: 0 };
+  if (phase === 'probing') {
+    return builtinText('正在挑选最快的下载源（GitHub 直连 / 国内镜像）…',
+      'Picking the fastest download source…');
+  }
+  if (phase === 'verifying') return builtinText('正在校验文件完整性…', 'Verifying file integrity…');
+  if (phase === 'extracting') return builtinText('正在解压，这一步比较慢，请耐心等待…', 'Extracting, this takes a while…');
+  if (phase === 'done') return builtinText('内置引擎安装完成', 'Built-in engine installed');
+  if (phase !== 'downloading') return builtinText('正在准备…', 'Preparing…');
+
+  const now = performance.now();
+  let speed = 0;
+  if (builtinProgressSample.time > 0) {
+    const elapsed = (now - builtinProgressSample.time) / 1000;
+    if (elapsed > 0.4) {
+      speed = Math.max(0, (downloaded - builtinProgressSample.bytes) / elapsed);
+      builtinProgressSample = { bytes: downloaded, time: now };
+    }
+  } else {
+    builtinProgressSample = { bytes: downloaded, time: now };
+  }
+
+  const bits = [total > 0 ? `${formatBytes(downloaded)} / ${formatBytes(total)}` : formatBytes(downloaded)];
+  if (speed > 0) {
+    bits.push(`${formatBytes(speed)}/s`);
+    if (total > downloaded) {
+      const remaining = formatDuration((total - downloaded) / speed);
+      if (remaining) bits.push(builtinText(`剩余约 ${remaining}`, `about ${remaining} left`));
+    }
+  }
+  if (payload?.message) bits.push(payload.message);
+  return `${builtinText('正在下载内置引擎…', 'Downloading built-in engine…')} ${bits.join(' · ')}`;
 }
 
 async function refreshBuiltinRuntimeState () {
@@ -1249,6 +1285,7 @@ async function installBuiltinRuntime (mode) {
       showBuiltinProgress(percent, builtinPhaseText(payload.phase, payload));
     });
     showBuiltinProgress(0, builtinText('正在准备…', 'Preparing…'));
+    if (elements.cancelBuiltinInstall) elements.cancelBuiltinInstall.hidden = false;
 
     let useMode = mode;
     let archivePath = null;
@@ -1271,6 +1308,7 @@ async function installBuiltinRuntime (mode) {
     builtinInstallActive = false;
     setBuiltinBusy(false);
     hideBuiltinProgress();
+    if (elements.cancelBuiltinInstall) elements.cancelBuiltinInstall.hidden = true;
   }
 }
 
@@ -2602,6 +2640,14 @@ elements.builtinRuntime?.addEventListener('change', () => {
 });
 elements.installBuiltin?.addEventListener('click', () => installBuiltinRuntime('offline'));
 elements.installBuiltinLatest?.addEventListener('click', () => installBuiltinRuntime('online'));
+elements.cancelBuiltinInstall?.addEventListener('click', async () => {
+  try {
+    await tauriInvoke('cancel_ai_runtime_install');
+    setBuiltinStatus('idle', builtinText('正在取消下载…', 'Cancelling download…'));
+  } catch (error) {
+    setBuiltinStatus('error', error?.message || String(error));
+  }
+});
 elements.startBuiltin?.addEventListener('click', () => startBuiltinRuntime());
 elements.rollbackBuiltin?.addEventListener('click', () => rollbackBuiltinRuntime());
 elements.studioTabs?.addEventListener('click', (event) => {

@@ -638,93 +638,362 @@ async fn resolve_latest_asset(api_url: &str, asset_name: &str) -> Option<(String
     Some((url, size, sha256))
 }
 
-async fn download_runtime_archive(
-    app: &tauri::AppHandle,
-    runtime_id: &str,
-    url: &str,
-    target: &std::path::Path,
-) -> Result<u64, String> {
-    use std::io::Write;
+/// 运行时下载：多源测速 + 多连接分片并发，缓解 GitHub 单连接限速
+const RUNTIME_DOWNLOAD_PARTS: usize = 6;
+const RUNTIME_PARALLEL_MIN_BYTES: u64 = 24 * 1024 * 1024;
+const RUNTIME_PROBE_BYTES: u64 = 1024 * 1024;
 
-    if let Some(parent) = target.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("无法创建下载目录: {}", e))?;
+/// 国内常见的 GitHub 加速前缀；只用于提速，下载完仍按 sha256 校验
+const GITHUB_MIRROR_PREFIXES: [&str; 3] = [
+    "https://ghfast.top/",
+    "https://gh-proxy.com/",
+    "https://ghproxy.net/",
+];
+
+#[derive(Clone)]
+struct RuntimeSource {
+    url: String,
+    proxy: Option<String>,
+    label: String,
+}
+
+fn push_runtime_source(sources: &mut Vec<RuntimeSource>, candidate: RuntimeSource) {
+    if !sources
+        .iter()
+        .any(|item| item.url == candidate.url && item.proxy == candidate.proxy)
+    {
+        sources.push(candidate);
     }
-    let partial = std::path::PathBuf::from(format!("{}.part", target.to_string_lossy()));
-    let existing = std::fs::metadata(&partial).map(|value| value.len()).unwrap_or(0);
+}
 
+fn runtime_download_sources(url: &str) -> Vec<RuntimeSource> {
+    let mut sources: Vec<RuntimeSource> = Vec::new();
     let env_proxy = ["HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"]
         .iter()
         .find_map(|key| std::env::var(key).ok().filter(|value| !value.trim().is_empty()));
-    let mut candidates: Vec<(String, Option<String>)> = vec![(url.to_string(), env_proxy.clone())];
+    push_runtime_source(&mut sources, RuntimeSource {
+        url: url.to_string(),
+        proxy: env_proxy,
+        label: "GitHub 直连".to_string(),
+    });
     for port in ["7890", "10809", "1080"] {
-        let proxy = Some(format!("http://127.0.0.1:{port}"));
-        if !candidates.iter().any(|(existing_url, existing_proxy)| *existing_url == url && *existing_proxy == proxy) {
-            candidates.push((url.to_string(), proxy));
+        push_runtime_source(&mut sources, RuntimeSource {
+            url: url.to_string(),
+            proxy: Some(format!("http://127.0.0.1:{port}")),
+            label: format!("本地代理 {}", port),
+        });
+    }
+    for prefix in GITHUB_MIRROR_PREFIXES {
+        push_runtime_source(&mut sources, RuntimeSource {
+            url: format!("{}{}", prefix, url),
+            proxy: None,
+            label: "国内加速镜像".to_string(),
+        });
+    }
+    sources
+}
+
+fn build_runtime_probe_client(proxy: Option<&str>) -> Result<reqwest::Client, String> {
+    let mut builder = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(25))
+        .redirect(reqwest::redirect::Policy::limited(10));
+    if let Some(addr) = proxy {
+        let proxy = reqwest::Proxy::all(addr).map_err(|e| e.to_string())?;
+        builder = builder.proxy(proxy);
+    }
+    builder.build().map_err(|e| e.to_string())
+}
+
+/// 探测某个源：返回（文件大小、是否支持分片、测速结果 bytes/s）
+async fn probe_runtime_source(source: &RuntimeSource) -> Result<(u64, bool, f64), String> {
+    let client = build_runtime_probe_client(source.proxy.as_deref())?;
+    let started = std::time::Instant::now();
+    let mut response = client
+        .get(&source.url)
+        .header(reqwest::header::RANGE, format!("bytes=0-{}", RUNTIME_PROBE_BYTES - 1))
+        .send()
+        .await
+        .map_err(|error| format!("{}", error))?;
+    let status = response.status();
+    if !status.is_success() && status != reqwest::StatusCode::PARTIAL_CONTENT {
+        return Err(format!("HTTP {}", status));
+    }
+    let supports_range = status == reqwest::StatusCode::PARTIAL_CONTENT;
+    let total = if supports_range {
+        response
+            .headers()
+            .get(reqwest::header::CONTENT_RANGE)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.rsplit('/').next())
+            .and_then(|value| value.trim().parse::<u64>().ok())
+            .unwrap_or(0)
+    } else {
+        response.content_length().unwrap_or(0)
+    };
+    if total == 0 {
+        return Err("未获取到文件大小".to_string());
+    }
+    let mut bytes = 0u64;
+    while let Some(chunk) = response.chunk().await.map_err(|error| format!("{}", error))? {
+        bytes += chunk.len() as u64;
+        if bytes >= RUNTIME_PROBE_BYTES || started.elapsed() > std::time::Duration::from_secs(6) {
+            break;
         }
     }
+    let seconds = started.elapsed().as_secs_f64().max(0.001);
+    Ok((total, supports_range, bytes as f64 / seconds))
+}
 
+/// 下载一个分片；源轮转使用，任何源成功即返回
+async fn download_runtime_part(
+    sources: Vec<RuntimeSource>,
+    target: std::path::PathBuf,
+    start: u64,
+    end: u64,
+    progress: std::sync::Arc<std::sync::atomic::AtomicU64>,
+) -> Result<(), String> {
+    use std::io::{Seek, SeekFrom, Write};
+    let expected = end - start + 1;
     let mut last_error = String::new();
-    let mut response = None;
-    for (candidate_url, candidate_proxy) in &candidates {
-        let client = match build_download_client(candidate_proxy.as_deref()) {
+
+    for source in &sources {
+        if AI_RUNTIME_CANCEL.load(Ordering::SeqCst) {
+            return Err("已取消运行时下载".to_string());
+        }
+        let client = match build_download_client(source.proxy.as_deref()) {
             Ok(value) => value,
             Err(error) => {
                 last_error = error;
                 continue;
             }
         };
-        let mut request = client.get(candidate_url);
-        if existing > 0 {
-            request = request.header(reqwest::header::RANGE, format!("bytes={}-", existing));
-        }
-        match request.send().await {
-            Ok(result) => {
-                if result.status() == reqwest::StatusCode::PARTIAL_CONTENT || result.status().is_success() {
-                    response = Some(result);
+        let mut response = match client
+            .get(&source.url)
+            .header(reqwest::header::RANGE, format!("bytes={}-{}", start, end))
+            .send()
+            .await
+        {
+            Ok(value) if value.status() == reqwest::StatusCode::PARTIAL_CONTENT || value.status().is_success() => value,
+            Ok(value) => {
+                last_error = format!("{}: HTTP {}", source.label, value.status());
+                continue;
+            }
+            Err(error) => {
+                last_error = format!("{}: {}", source.label, error);
+                continue;
+            }
+        };
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .open(&target)
+            .map_err(|error| format!("无法写入下载文件: {}", error))?;
+        file.seek(SeekFrom::Start(start))
+            .map_err(|error| format!("无法定位写入位置: {}", error))?;
+
+        let mut written = 0u64;
+        let mut failed = false;
+        loop {
+            match response.chunk().await {
+                Ok(Some(chunk)) => {
+                    if AI_RUNTIME_CANCEL.load(Ordering::SeqCst) {
+                        return Err("已取消运行时下载".to_string());
+                    }
+                    if let Err(error) = file.write_all(&chunk) {
+                        return Err(format!("写入失败: {}", error));
+                    }
+                    written += chunk.len() as u64;
+                    progress.fetch_add(chunk.len() as u64, Ordering::SeqCst);
+                    if written >= expected {
+                        break;
+                    }
+                }
+                Ok(None) => break,
+                Err(error) => {
+                    last_error = format!("{}: {}", source.label, error);
+                    failed = true;
                     break;
                 }
-                last_error = format!("下载失败，状态码 {}", result.status());
             }
-            Err(error) => last_error = format!("{}", error),
+        }
+        drop(file);
+        if !failed && written >= expected {
+            return Ok(());
         }
     }
-    let Some(mut response) = response else {
+    Err(format!("分片下载失败：{}", last_error))
+}
+
+async fn download_runtime_archive(
+    app: &tauri::AppHandle,
+    runtime_id: &str,
+    url: &str,
+    target: &std::path::Path,
+    expected_size: Option<u64>,
+) -> Result<u64, String> {
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("无法创建下载目录: {}", e))?;
+    }
+    // 已存在完整文件时直接复用
+    if let Some(expected) = expected_size.filter(|value| *value > 0) {
+        if std::fs::metadata(target).map(|value| value.len()).unwrap_or(0) == expected {
+            return Ok(expected);
+        }
+    }
+
+    emit_runtime_progress(app, AiRuntimeProgress {
+        runtime_id: runtime_id.to_string(),
+        phase: "probing".to_string(),
+        downloaded_bytes: 0,
+        total_bytes: 0,
+        message: String::new(),
+    });
+
+    let sources = runtime_download_sources(url);
+    struct Candidate {
+        source: RuntimeSource,
+        size: u64,
+        supports_range: bool,
+        speed: f64,
+    }
+    let mut candidates: Vec<Candidate> = Vec::new();
+    let mut last_error = String::new();
+    for source in sources.iter() {
+        match probe_runtime_source(source).await {
+            Ok((size, supports_range, speed)) => candidates.push(Candidate {
+                source: source.clone(),
+                size,
+                supports_range,
+                speed,
+            }),
+            Err(error) => last_error = format!("{}: {}", source.label, error),
+        }
+    }
+    if candidates.is_empty() {
         return Err(format!("运行时下载失败：{}", last_error));
+    }
+    candidates.sort_by(|left, right| {
+        right
+            .speed
+            .partial_cmp(&left.speed)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    let total = candidates[0].size;
+    let supports_range = candidates[0].supports_range;
+    let best_label = candidates[0].source.label.clone();
+    let mut ordered: Vec<RuntimeSource> = Vec::new();
+    for candidate in &candidates {
+        ordered.push(candidate.source.clone());
+    }
+
+    {
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(target)
+            .map_err(|e| format!("无法创建下载文件: {}", e))?;
+        file.set_len(total).map_err(|e| format!("无法预分配下载文件: {}", e))?;
+    }
+
+    let progress = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let done_flag = std::sync::Arc::new(AtomicBool::new(false));
+    let reporter = {
+        let app = app.clone();
+        let runtime_id = runtime_id.to_string();
+        let progress = std::sync::Arc::clone(&progress);
+        let done_flag = std::sync::Arc::clone(&done_flag);
+        let label = best_label.clone();
+        tokio::spawn(async move {
+            while !done_flag.load(Ordering::SeqCst) {
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                emit_runtime_progress(&app, AiRuntimeProgress {
+                    runtime_id: runtime_id.clone(),
+                    phase: "downloading".to_string(),
+                    downloaded_bytes: progress.load(Ordering::SeqCst),
+                    total_bytes: total,
+                    message: label.clone(),
+                });
+            }
+        })
     };
 
-    let total = response
-        .content_length()
-        .map(|value| value + existing)
-        .unwrap_or(0);
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&partial)
-        .map_err(|e| format!("无法写入临时文件: {}", e))?;
-    let mut downloaded = existing;
-    let mut last_emit = std::time::Instant::now();
-
-    while let Some(chunk) = response.chunk().await.map_err(|e| format!("下载中断: {}", e))? {
-        if AI_RUNTIME_CANCEL.load(Ordering::SeqCst) {
-            return Err("已取消运行时下载".to_string());
-        }
-        file.write_all(&chunk).map_err(|e| format!("写入失败: {}", e))?;
-        downloaded += chunk.len() as u64;
-        if last_emit.elapsed() >= std::time::Duration::from_millis(500) {
-            last_emit = std::time::Instant::now();
-            emit_runtime_progress(app, AiRuntimeProgress {
-                runtime_id: runtime_id.to_string(),
-                phase: "downloading".to_string(),
-                downloaded_bytes: downloaded,
-                total_bytes: total,
-                message: String::new(),
-            });
+    let parts = if supports_range && total >= RUNTIME_PARALLEL_MIN_BYTES {
+        RUNTIME_DOWNLOAD_PARTS
+    } else {
+        1
+    };
+    let mut join_set: tokio::task::JoinSet<Result<(), String>> = tokio::task::JoinSet::new();
+    if parts == 1 {
+        join_set.spawn(download_runtime_part(
+            ordered.clone(),
+            target.to_path_buf(),
+            0,
+            total - 1,
+            std::sync::Arc::clone(&progress),
+        ));
+    } else {
+        let chunk = total / parts as u64;
+        for index in 0..parts {
+            let start = chunk * index as u64;
+            let end = if index + 1 == parts {
+                total - 1
+            } else {
+                chunk * (index + 1) as u64 - 1
+            };
+            // 每个分片轮转起始源，避免所有分片都挤在最慢的源上
+            let mut rotated = ordered.clone();
+            let source_count = rotated.len();
+            if source_count > 0 {
+                rotated.rotate_left(index % source_count);
+            }
+            join_set.spawn(download_runtime_part(
+                rotated,
+                target.to_path_buf(),
+                start,
+                end,
+                std::sync::Arc::clone(&progress),
+            ));
         }
     }
-    file.flush().map_err(|e| format!("写入失败: {}", e))?;
-    drop(file);
-    std::fs::rename(&partial, target).map_err(|e| format!("无法完成下载文件: {}", e))?;
-    Ok(downloaded)
+
+    let mut failure: Option<String> = None;
+    while let Some(result) = join_set.join_next().await {
+        match result {
+            Ok(Ok(())) => {}
+            Ok(Err(message)) => {
+                failure = Some(message);
+                join_set.abort_all();
+                break;
+            }
+            Err(error) => {
+                failure = Some(error.to_string());
+                join_set.abort_all();
+                break;
+            }
+        }
+    }
+    done_flag.store(true, Ordering::SeqCst);
+    reporter.abort();
+
+    if let Some(message) = failure {
+        let _ = std::fs::remove_file(target);
+        return Err(message);
+    }
+    if AI_RUNTIME_CANCEL.load(Ordering::SeqCst) {
+        let _ = std::fs::remove_file(target);
+        return Err("已取消运行时下载".to_string());
+    }
+
+    emit_runtime_progress(app, AiRuntimeProgress {
+        runtime_id: runtime_id.to_string(),
+        phase: "downloading".to_string(),
+        downloaded_bytes: total,
+        total_bytes: total,
+        message: best_label,
+    });
+    Ok(total)
 }
 
 fn ai_runtime_target_dir(paths: &AiPaths, runtime_id: &str, version: &str) -> std::path::PathBuf {
@@ -811,7 +1080,7 @@ async fn install_ai_runtime(
         }
 
         let target = std::path::PathBuf::from(&paths.cache).join(asset_name);
-        let size = download_runtime_archive(&app, &runtime_id, &url, &target).await?;
+        let size = download_runtime_archive(&app, &runtime_id, &url, &target, expected_size).await?;
         if let Some(expected) = expected_size {
             if expected > 0 && size != expected {
                 return Err(format!("运行时包大小不一致：期望 {} 字节，实际 {} 字节", expected, size));

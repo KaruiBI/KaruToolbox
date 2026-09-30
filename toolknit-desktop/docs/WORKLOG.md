@@ -256,6 +256,21 @@ Rust cargo check --offline：通过（仅保留 2 个既有 unused import 警告
 
 验证：esbuild 打包（JS/CSS）通过；`index.html` section 18/18、div 1898/1898、details 8/8 配对。
 
+补充（同日）：运行时下载加速。
+
+用户反馈内置引擎下载很慢（1.9 GB 只跑到 79 MB）。原因是 GitHub Release 在国内单连接常被限速到几百 KB/s。
+
+- `download_runtime_archive` 重写为「多源测速 + 多连接分片并发」：
+  - 候选源：GitHub 直连 → 环境变量代理 → 本地代理端口（7890/10809/1080）→ 国内加速镜像前缀
+    （`ghfast.top` / `gh-proxy.com` / `ghproxy.net`，仅用于传输加速，下载后仍按 sha256 校验）；
+  - 每个源先用 1 MB Range 请求探测（取文件大小、是否支持分片、实测速率），选最快的作为首选；
+  - 文件 ≥ 24 MB 且支持 Range 时用 6 个分片并发下载，预分配文件后各分片按偏移直接写入；
+  - 分片轮转起始源，单个源失败自动换下一个；分片不完全时换源重试；
+  - 已存在且大小一致的缓存文件直接复用，不再重复下载。
+- 前端进度行显示实时速度、剩余时间与当前下载源；新增「取消下载」按钮调用 `cancel_ai_runtime_install`。
+
+验证：Rust `cargo check` 通过；esbuild 打包通过。
+
 ## 当前风险与技术债
 
 1. `src/main.js`、`src/styles.css` 和 `index.html` 体积很大，新功能必须模块化。
