@@ -13721,6 +13721,11 @@
           border-radius: 14px;
       }
       
+      /* 引擎面板现在是三个 tab：内置引擎 / 自己的 ComfyUI / Desktop 远程 */
+      #comfyEngineMode {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
       .comfy-segmented {
           margin-bottom: 24px;
       }

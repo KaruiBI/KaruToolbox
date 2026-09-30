@@ -248,7 +248,7 @@ let builtinRuntimeTouched = false;
 
 function loadConfig() {
     const fallback = {
-        mode: 'local',
+        mode: 'builtin',
         localPath: '',
         pythonPath: '',
         serverUrl: 'http://127.0.0.1:8188',
@@ -307,7 +307,18 @@ function updateEngineModeFields(mode) {
     document.querySelectorAll('.comfy-remote-field').forEach((field) => {
         field.hidden = mode !== 'remote';
     });
+    document.querySelectorAll('.comfy-builtin-field').forEach((field) => {
+        field.hidden = mode !== 'builtin';
+    });
     if (elements.advancedSettings && mode === 'remote') elements.advancedSettings.open = true;
+    // 内置模式自带状态行，隐藏底部那份避免重复
+    if (elements.engineStatus) elements.engineStatus.hidden = mode === 'builtin';
+    const startLabel = elements.startEngine && elements.startEngine.querySelector('span');
+    if (startLabel) {
+        startLabel.textContent = mode === 'builtin'
+            ? t('comfyStudio.startBuiltin')
+            : t('comfyStudio.saveAndStart');
+    }
 }
 
 function setStatus(target, state, message) {
@@ -1295,6 +1306,7 @@ async function startBuiltinRuntime () {
     setBuiltinStatus('error', t('comfyStudio.connectionFailed'));
   } catch (error) {
     setBuiltinStatus('error', error?.message || String(error));
+    setEngineStatus('error', error?.message || String(error));
   } finally {
     setBuiltinBusy(false);
   }
@@ -2568,7 +2580,15 @@ elements.testEngine?.addEventListener('click', async () => {
 });
 elements.startEngine?.addEventListener('click', async () => {
   elements.startEngine.disabled = true;
-  try { await startLocalEngine(); }
+  try {
+    const mode = readConfigForm().mode;
+    if (mode === 'builtin') {
+      saveConfig();
+      await startBuiltinRuntime();
+    } else {
+      await startLocalEngine();
+    }
+  }
   catch (error) { setEngineStatus('error', error.message || String(error)); }
   finally { elements.startEngine.disabled = false; }
 });

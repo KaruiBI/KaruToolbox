@@ -4627,56 +4627,6 @@
                     <p data-i18n="comfyStudio.engineLead">Karui 提供图片与视频工作流创作体验。</p>
                 </div>
             </div>
-            <section class="comfy-engine-card">
-                <div class="comfy-hardware-head">
-                    <div>
-                        <span class="comfy-kicker">BUILT-IN ENGINE</span>
-                        <h3 data-i18n="comfyStudio.builtinTitle">内置引擎（推荐）</h3>
-                        <p data-i18n="comfyStudio.builtinLead">Karui 自带生成引擎，不用自己安装和配置 ComfyUI，装好就能用。</p>
-                    </div>
-                </div>
-                <div class="comfy-builtin-detect" id="comfyBuiltinDetect">
-                    <span class="comfy-builtin-detect-badge" id="comfyBuiltinDetectBadge">--</span>
-                    <div class="comfy-builtin-detect-text">
-                        <strong id="comfyBuiltinDetectTitle" data-i18n="comfyStudio.builtinDetecting">正在识别本机显卡…</strong>
-                        <small id="comfyBuiltinDetectDetail" data-i18n="comfyStudio.builtinDetectHint">识别后会自动匹配要安装的引擎版本。</small>
-                    </div>
-                </div>
-                <details class="comfy-advanced" id="comfyBuiltinManual">
-                    <summary><i data-lucide="sliders-horizontal"></i><span data-i18n="comfyStudio.builtinManual">手动选择显卡类型</span></summary>
-                    <div class="comfy-advanced-content">
-                        <label class="comfy-field">
-                            <span data-i18n="comfyStudio.builtinGpuType">显卡类型</span>
-                            <select id="comfyBuiltinRuntime">
-                                <option value="comfyui-windows-nvidia" data-i18n="comfyStudio.runtimeNvidia">NVIDIA 显卡（最常见）</option>
-                                <option value="comfyui-windows-nvidia-cu126" data-i18n="comfyStudio.runtimeNvidiaOld">NVIDIA 旧显卡（CUDA 12.6）</option>
-                                <option value="comfyui-windows-amd" data-i18n="comfyStudio.runtimeAmd">AMD 显卡</option>
-                                <option value="comfyui-windows-intel" data-i18n="comfyStudio.runtimeIntel">Intel 显卡 / 核显</option>
-                            </select>
-                        </label>
-                    </div>
-                </details>
-                <div class="comfy-engine-status" id="comfyBuiltinStatus" data-state="idle">
-                    <span class="comfy-status-dot"></span>
-                    <span id="comfyBuiltinStatusText" data-i18n="comfyStudio.builtinChecking">正在检查内置引擎…</span>
-                </div>
-                <div class="comfy-progress" id="comfyBuiltinProgress" hidden>
-                    <div class="comfy-progress-track"><span id="comfyBuiltinProgressFill"></span></div>
-                    <div class="comfy-progress-line">
-                        <span id="comfyBuiltinProgressText"></span>
-                    </div>
-                </div>
-                <div class="comfy-engine-actions">
-                    <button class="comfy-btn primary" id="comfyInstallBuiltin" type="button">
-                        <i data-lucide="download"></i><span data-i18n="comfyStudio.installBuiltin">一键安装内置引擎</span>
-                    </button>
-                    <button class="comfy-btn secondary" id="comfyInstallBuiltinLatest" type="button" data-i18n="comfyStudio.installBuiltinLatest">下载最新版（联网）</button>
-                    <button class="comfy-btn secondary" id="comfyStartBuiltin" type="button">
-                        <i data-lucide="power"></i><span data-i18n="comfyStudio.startBuiltin">启动内置引擎</span>
-                    </button>
-                    <button class="comfy-btn secondary" id="comfyRollbackBuiltin" type="button" hidden data-i18n="comfyStudio.rollbackBuiltin">回滚上一版</button>
-                </div>
-            </section>
 <section class="comfy-hardware-card" id="comfyHardwareCard">
                 <div class="comfy-hardware-head">
                     <div>
@@ -4711,8 +4661,56 @@
 </section>
             <section class="comfy-engine-card">
                 <div class="comfy-segmented" id="comfyEngineMode">
-                    <button class="active" type="button" data-mode="local" data-i18n="comfyStudio.localEngine">本地引擎</button>
-                    <button type="button" data-mode="remote" data-i18n="comfyStudio.remoteEngine">远程引擎</button>
+                    <button class="active" type="button" data-mode="builtin" data-i18n="comfyStudio.builtinTab">内置引擎</button>
+                    <button type="button" data-mode="local" data-i18n="comfyStudio.localEngine">自己的 ComfyUI</button>
+                    <button type="button" data-mode="remote" data-i18n="comfyStudio.remoteEngine">Desktop / 远程</button>
+                </div>
+                <div class="comfy-builtin-field" id="comfyBuiltinField">
+                    <div class="comfy-hardware-head">
+                        <div>
+                            <span class="comfy-kicker">BUILT-IN ENGINE</span>
+                            <h3 data-i18n="comfyStudio.builtinTitle">内置引擎（推荐）</h3>
+                            <p data-i18n="comfyStudio.builtinLead">Karui 自带生成引擎，不用自己安装和配置 ComfyUI，装好就能用。</p>
+                        </div>
+                    </div>
+                    <div class="comfy-builtin-detect" id="comfyBuiltinDetect">
+                        <span class="comfy-builtin-detect-badge" id="comfyBuiltinDetectBadge">--</span>
+                        <div class="comfy-builtin-detect-text">
+                            <strong id="comfyBuiltinDetectTitle" data-i18n="comfyStudio.builtinDetecting">正在识别本机显卡…</strong>
+                            <small id="comfyBuiltinDetectDetail" data-i18n="comfyStudio.builtinDetectHint">识别后会自动匹配要安装的引擎版本。</small>
+                        </div>
+                    </div>
+                    <details class="comfy-advanced" id="comfyBuiltinManual">
+                        <summary><i data-lucide="sliders-horizontal"></i><span data-i18n="comfyStudio.builtinManual">手动选择显卡类型</span></summary>
+                        <div class="comfy-advanced-content">
+                            <label class="comfy-field">
+                                <span data-i18n="comfyStudio.builtinGpuType">显卡类型</span>
+                                <select id="comfyBuiltinRuntime">
+                                    <option value="comfyui-windows-nvidia" data-i18n="comfyStudio.runtimeNvidia">NVIDIA 显卡（最常见）</option>
+                                    <option value="comfyui-windows-nvidia-cu126" data-i18n="comfyStudio.runtimeNvidiaOld">NVIDIA 旧显卡（CUDA 12.6）</option>
+                                    <option value="comfyui-windows-amd" data-i18n="comfyStudio.runtimeAmd">AMD 显卡</option>
+                                    <option value="comfyui-windows-intel" data-i18n="comfyStudio.runtimeIntel">Intel 显卡 / 核显</option>
+                                </select>
+                            </label>
+                        </div>
+                    </details>
+                    <div class="comfy-engine-status" id="comfyBuiltinStatus" data-state="idle">
+                        <span class="comfy-status-dot"></span>
+                        <span id="comfyBuiltinStatusText" data-i18n="comfyStudio.builtinChecking">正在检查内置引擎…</span>
+                    </div>
+                    <div class="comfy-progress" id="comfyBuiltinProgress" hidden>
+                        <div class="comfy-progress-track"><span id="comfyBuiltinProgressFill"></span></div>
+                        <div class="comfy-progress-line">
+                            <span id="comfyBuiltinProgressText"></span>
+                        </div>
+                    </div>
+                    <div class="comfy-engine-actions">
+                        <button class="comfy-btn primary" id="comfyInstallBuiltin" type="button">
+                            <i data-lucide="download"></i><span data-i18n="comfyStudio.installBuiltin">一键安装内置引擎</span>
+                        </button>
+                        <button class="comfy-btn secondary" id="comfyInstallBuiltinLatest" type="button" data-i18n="comfyStudio.installBuiltinLatest">下载最新版（联网）</button>
+                        <button class="comfy-btn secondary" id="comfyRollbackBuiltin" type="button" hidden data-i18n="comfyStudio.rollbackBuiltin">回滚上一版</button>
+                    </div>
                 </div>
                 <div class="comfy-setup-guide comfy-local-field">
                     <i data-lucide="folder-check"></i>
@@ -4761,10 +4759,10 @@
                     <span data-i18n="comfyStudio.readyToSetup">选择文件夹后即可启动</span>
                 </div>
                 <div class="comfy-engine-actions">
-                    <button class="comfy-btn secondary comfy-local-field" id="comfyStopEngine" type="button" data-i18n="comfyStudio.stopEngine">停止</button>
+                    <button class="comfy-btn secondary comfy-local-field comfy-builtin-field" id="comfyStopEngine" type="button" data-i18n="comfyStudio.stopEngine">停止</button>
                     <button class="comfy-btn secondary comfy-remote-field" id="comfyTestEngine" type="button" data-i18n="comfyStudio.testConnection">测试连接</button>
                     <button class="comfy-btn secondary comfy-remote-field" id="comfySaveEngine" type="button" data-i18n="common.save">保存</button>
-                    <button class="comfy-btn primary comfy-local-field comfy-connect-btn" id="comfyStartEngine" type="button">
+                    <button class="comfy-btn primary comfy-local-field comfy-builtin-field comfy-connect-btn" id="comfyStartEngine" type="button">
                                                 <i data-lucide="power"></i><span data-i18n="comfyStudio.saveAndStart">保存并启动</span>
                                         </button>
                 </div>

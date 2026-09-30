@@ -244,6 +244,18 @@ Rust cargo check --offline：通过（仅保留 2 个既有 unused import 警告
 
 验证：esbuild 打包（JS/CSS）通过；locale JSON 解析通过；`index.html` section 19/19、div 1897/1897、details 8/8 配对。
 
+补充（同日）：内置引擎与本地引擎合并为同一张卡片。
+
+- 引擎面板不再有上下两块卡片，改为一个分段控件三个 tab：内置引擎 / 自己的 ComfyUI / Desktop 远程；
+- 内置引擎内容（自动识别显卡、手动选择、安装进度、安装/下载/回滚按钮）作为 `#comfyBuiltinField`
+  显示在 tab 下，`comfy-builtin-field` 控制显隐；
+- 底部「保存并启动」按钮在内置模式下显示，文案自动变为「启动内置引擎」并调用 `start_ai_runtime`；
+  「停止」按钮对两种模式都可见；
+- 内置模式下隐藏底部通用状态行，避免与内置引擎自己的状态行重复；
+- 默认引擎模式改为内置（老配置里已有的 `mode` 不会被覆盖）。
+
+验证：esbuild 打包（JS/CSS）通过；`index.html` section 18/18、div 1898/1898、details 8/8 配对。
+
 ## 当前风险与技术债
 
 1. `src/main.js`、`src/styles.css` 和 `index.html` 体积很大，新功能必须模块化。
