@@ -251,6 +251,7 @@ let modelDownloadActive = false;
 let builtinInstallActive = false;
 let builtinRuntimeTouched = false;
 let builtinProgressSample = { bytes: 0, time: 0 };
+let builtinRuntimeState = null;
 
 function loadConfig() {
     const fallback = {
