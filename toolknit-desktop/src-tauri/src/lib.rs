@@ -752,6 +752,7 @@ async fn download_runtime_part(
     target: std::path::PathBuf,
     start: u64,
     end: u64,
+    total: u64,
     written_before: u64,
     progress: std::sync::Arc<std::sync::atomic::AtomicU64>,
     state: std::sync::Arc<std::sync::Mutex<Vec<u64>>>,
@@ -775,22 +776,44 @@ async fn download_runtime_part(
                 continue;
             }
         };
-        let mut response = match client
+        let response = match client
             .get(&source.url)
             .header(reqwest::header::RANGE, format!("bytes={}-{}", resume_at, end))
             .send()
             .await
         {
-            Ok(value) if value.status() == reqwest::StatusCode::PARTIAL_CONTENT || value.status().is_success() => value,
-            Ok(value) => {
-                last_error = format!("{}: HTTP {}", source.label, value.status());
-                continue;
-            }
+            Ok(value) => value,
             Err(error) => {
                 last_error = format!("{}: {}", source.label, error);
                 continue;
             }
         };
+        let status = response.status();
+        // 服务器必须按 Range 返回，否则会写到错误的位置把包写坏
+        let full_file_requested = resume_at == 0 && end == total - 1;
+        if status != reqwest::StatusCode::PARTIAL_CONTENT
+            && !(full_file_requested && status.is_success())
+        {
+            last_error = format!("{}: 不支持断点下载（HTTP {}）", source.label, status);
+            continue;
+        }
+        if resume_at > start {
+            let actual_start = response
+                .headers()
+                .get(reqwest::header::CONTENT_RANGE)
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| value.split(' ').nth(1))
+                .and_then(|value| value.split('-').next())
+                .and_then(|value| value.trim().parse::<u64>().ok());
+            match actual_start {
+                Some(offset) if offset == resume_at => {}
+                _ => {
+                    last_error = format!("{}: 断点位置不匹配", source.label);
+                    continue;
+                }
+            }
+        }
+        let mut response = response;
         let mut file = std::fs::OpenOptions::new()
             .write(true)
             .open(&target)
@@ -979,7 +1002,9 @@ async fn download_runtime_archive(
         ordered.push(candidate.source.clone());
     }
 
-    {
+    // 文件长度已经对得上就保留内容（续传），否则重建并预分配
+    let existing_size = std::fs::metadata(target).map(|value| value.len()).unwrap_or(0);
+    if existing_size != total {
         let file = std::fs::OpenOptions::new()
             .create(true)
             .write(true)
@@ -1011,8 +1036,12 @@ async fn download_runtime_archive(
             .collect()
     };
 
-    // 断点续传：读取上次每个分片已下载的字节数
-    let written = load_runtime_state(target, url, total, ranges.len());
+    // 断点续传：读取上次每个分片已下载的字节数；文件被清空或重建过，则记录作废
+    let mut written = load_runtime_state(target, url, total, ranges.len());
+    if existing_size != total {
+        written = vec![0u64; ranges.len()];
+        let _ = std::fs::remove_file(runtime_state_path(target));
+    }
     let restored: u64 = written.iter().sum();
     let state = std::sync::Arc::new(std::sync::Mutex::new(written.clone()));
     let progress = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(restored));
@@ -1065,6 +1094,7 @@ async fn download_runtime_archive(
             target.to_path_buf(),
             range.0,
             range.1,
+            total,
             written[index],
             std::sync::Arc::clone(&progress),
             std::sync::Arc::clone(&state),
@@ -1220,8 +1250,10 @@ async fn install_ai_runtime(
             });
             let actual = sha256_file(&target)?;
             if !actual.eq_ignore_ascii_case(&expected) {
+                // 文件已损坏：清掉缓存和续传记录，避免下次按错误偏移继续拼
                 let _ = std::fs::remove_file(&target);
-                return Err("运行时包校验失败，文件可能已损坏".to_string());
+                let _ = std::fs::remove_file(runtime_state_path(&target));
+                return Err("运行时包校验失败，已清理损坏的文件，请重新点击安装".to_string());
             }
         }
         target
