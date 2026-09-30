@@ -1269,15 +1269,40 @@ async fn install_ai_runtime(
     // 本地导入：直接使用已解压的 ComfyUI 便携包，不下载也不解压
     if mode == "local" {
         let source = std::path::PathBuf::from(archive_path.clone().unwrap_or_default());
-        if !source.join("main.py").is_file() {
-            return Err("请选择包含 main.py 的 ComfyUI 目录".to_string());
+        // 允许用户选解压出来的任意一层：ComfyUI 目录、ComfyUI_windows_portable 或解压根目录
+        let mut comfy_dir = source.clone();
+        if !comfy_dir.join("main.py").is_file() {
+            let mut found = None;
+            if let Ok(entries) = std::fs::read_dir(&source) {
+                for entry in entries.flatten() {
+                    let candidate = entry.path();
+                    if candidate.join("main.py").is_file() {
+                        found = Some(candidate);
+                        break;
+                    }
+                    // 便携包结构：ComfyUI_windows_portable/ComfyUI/main.py
+                    if let Ok(sub) = std::fs::read_dir(&candidate) {
+                        for sub_entry in sub.flatten() {
+                            let deep = sub_entry.path();
+                            if deep.join("main.py").is_file() {
+                                found = Some(deep);
+                                break;
+                            }
+                        }
+                        if found.is_some() {
+                            break;
+                        }
+                    }
+                }
+            }
+            comfy_dir = found.ok_or("所选文件夹里没有找到 main.py，请选择解压后的 ComfyUI_windows_portable 文件夹".to_string())?;
         }
-        let python_exe = source
+        let python_exe = comfy_dir
             .parent()
             .map(|parent| parent.join("python_embeded").join("python.exe"))
             .filter(|path| path.is_file())
             .or_else(|| {
-                let local = source.join("python_embeded").join("python.exe");
+                let local = comfy_dir.join("python_embeded").join("python.exe");
                 if local.is_file() { Some(local) } else { None }
             });
         let manifest = serde_json::json!({
@@ -1285,7 +1310,7 @@ async fn install_ai_runtime(
             "mode": "local",
             "version": version,
             "installedAt": chrono_like_now(),
-            "comfyDir": source.to_string_lossy(),
+            "comfyDir": comfy_dir.to_string_lossy(),
             "pythonExe": python_exe.map(|p| p.to_string_lossy().to_string()),
             "sha256": null,
             "sizeBytes": null,

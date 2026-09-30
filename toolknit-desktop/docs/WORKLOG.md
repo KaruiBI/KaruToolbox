@@ -321,6 +321,18 @@ Rust cargo check --offline：通过（仅保留 2 个既有 unused import 警告
 
 验证：Rust `cargo check` 通过；esbuild 打包通过；`index.html` 结构配对检查通过。
 
+补充（同日）：按用户反馈调整下载入口。
+
+- 「取消下载」改用小号按钮样式，不再独占大按钮；
+- 「下载最新版（联网）」改为「打开官方下载页」：浏览器下载到用户自己的位置，
+  程序内在线下载仍保留在「一键安装内置引擎」里；
+- 新增可折叠「下载慢或失败？手动安装教程」三步指引（下载 → 解压 → 导入已解压目录）；
+- 本地导入支持选择任意一层目录（ComfyUI、ComfyUI_windows_portable 或解压根目录），
+  自动定位 main.py 与 python_embeded；manifest 记录实际找到的 ComfyUI 目录（此前记录的是
+  用户选择的目录，选上层会导致启动报「内置运行时已损坏」）。
+
+验证：Rust `cargo check` 通过；esbuild 打包通过；locale JSON 解析通过。
+
 ## 当前风险与技术债
 
 1. `src/main.js`、`src/styles.css` 和 `index.html` 体积很大，新功能必须模块化。
