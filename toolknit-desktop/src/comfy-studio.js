@@ -317,6 +317,8 @@ function updateEngineModeFields(mode) {
         field.hidden = mode !== 'builtin';
     });
     if (elements.advancedSettings && mode === 'remote') elements.advancedSettings.open = true;
+    // 切出内置模式时恢复底部启动按钮（内置模式下已连接时会隐藏它）
+    if (mode !== 'builtin' && elements.startEngine) elements.startEngine.hidden = false;
     // 内置模式自带状态行，隐藏底部那份避免重复
     if (elements.engineStatus) elements.engineStatus.hidden = mode === 'builtin';
     const startLabel = elements.startEngine && elements.startEngine.querySelector('span');
@@ -1159,6 +1161,7 @@ async function stopLocalEngine () {
   await tauriInvoke('stop_comfy_local');
   setEngineStatus('idle', t('comfyStudio.stopped'));
   setConnectionStatus('offline', t('comfyStudio.offline'));
+  if (elements.startEngine) elements.startEngine.hidden = false;
 }
 
 /* ---------------- 内置运行时（Karui 自带生成引擎） ---------------- */
@@ -1276,6 +1279,7 @@ async function refreshBuiltinRuntimeState () {
       elements.importExtractedBuiltin,
       elements.builtinManual,
       elements.builtinTutorial,
+      elements.clearBuiltinCache,
     ];
     setupOnly.forEach((item) => { if (item) item.hidden = hasInstall; });
     if (elements.rollbackBuiltin) elements.rollbackBuiltin.hidden = !installed?.previous;
@@ -1418,8 +1422,10 @@ async function startBuiltinRuntime () {
     for (let attempt = 0; attempt < 45; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 2000));
       try {
-        await testConnection();
+        // 等待期间不把失败写到卡片状态行，避免「已启动」和「无法连接」同时出现
+        await testConnection({ updateCard: false });
         setBuiltinStatus('online', builtinText('内置引擎已连接，可以开始生成了。', 'Built-in engine connected. You are ready to generate.'));
+        if (elements.startEngine) elements.startEngine.hidden = true;
         return;
       } catch (error) {
         setBuiltinStatus('idle', `${builtinText('正在等待引擎就绪…', 'Waiting for the engine…')} ${attempt + 1}/45`);
