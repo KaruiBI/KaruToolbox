@@ -639,7 +639,7 @@ async fn resolve_latest_asset(api_url: &str, asset_name: &str) -> Option<(String
 }
 
 /// 运行时下载：多源测速 + 多连接分片并发，缓解 GitHub 单连接限速
-const RUNTIME_DOWNLOAD_PARTS: usize = 6;
+const RUNTIME_DOWNLOAD_PARTS: usize = 4;
 const RUNTIME_PARALLEL_MIN_BYTES: u64 = 24 * 1024 * 1024;
 const RUNTIME_PROBE_BYTES: u64 = 1024 * 1024;
 
@@ -939,20 +939,24 @@ fn save_runtime_state(
     }
 }
 
+/// 下载运行时包。返回（文件大小、实际使用的下载地址）。
+/// 一次下载只走同一个源：不同镜像可能缓存着不同版本，混着分片会拼出坏文件。
+/// `excluded` 用于在上一次校验失败后换源重下。
 async fn download_runtime_archive(
     app: &tauri::AppHandle,
     runtime_id: &str,
     url: &str,
     target: &std::path::Path,
     expected_size: Option<u64>,
-) -> Result<u64, String> {
+    excluded: &[String],
+) -> Result<(u64, String), String> {
     if let Some(parent) = target.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("无法创建下载目录: {}", e))?;
     }
     // 已存在完整文件时直接复用
     if let Some(expected) = expected_size.filter(|value| *value > 0) {
         if std::fs::metadata(target).map(|value| value.len()).unwrap_or(0) == expected {
-            return Ok(expected);
+            return Ok((expected, url.to_string()));
         }
     }
 
@@ -974,13 +978,25 @@ async fn download_runtime_archive(
     let mut candidates: Vec<Candidate> = Vec::new();
     let mut last_error = String::new();
     for source in sources.iter() {
+        if excluded.iter().any(|item| item == &source.url) {
+            continue;
+        }
         match probe_runtime_source(source).await {
-            Ok((size, supports_range, speed)) => candidates.push(Candidate {
-                source: source.clone(),
-                size,
-                supports_range,
-                speed,
-            }),
+            Ok((size, supports_range, speed)) => {
+                // 大小必须和清单一致，否则这个源给的是另一个文件
+                if let Some(expected) = expected_size.filter(|value| *value > 0) {
+                    if size != expected {
+                        last_error = format!("{}: 文件大小不一致（{} 字节）", source.label, size);
+                        continue;
+                    }
+                }
+                candidates.push(Candidate {
+                    source: source.clone(),
+                    size,
+                    supports_range,
+                    speed,
+                });
+            }
             Err(error) => last_error = format!("{}: {}", source.label, error),
         }
     }
@@ -994,13 +1010,12 @@ async fn download_runtime_archive(
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
+    // 只选一个源，所有分片都用它，避免不同源内容不一致
+    let chosen = candidates[0].source.clone();
     let total = candidates[0].size;
     let supports_range = candidates[0].supports_range;
-    let best_label = candidates[0].source.label.clone();
-    let mut ordered: Vec<RuntimeSource> = Vec::new();
-    for candidate in &candidates {
-        ordered.push(candidate.source.clone());
-    }
+    let best_label = chosen.label.clone();
+    let ordered: Vec<RuntimeSource> = vec![chosen.clone()];
 
     // 文件长度已经对得上就保留内容（续传），否则重建并预分配
     let existing_size = std::fs::metadata(target).map(|value| value.len()).unwrap_or(0);
@@ -1036,8 +1051,8 @@ async fn download_runtime_archive(
             .collect()
     };
 
-    // 断点续传：读取上次每个分片已下载的字节数；文件被清空或重建过，则记录作废
-    let mut written = load_runtime_state(target, url, total, ranges.len());
+    // 断点续传：只有同一个源、同一个文件才接着下
+    let mut written = load_runtime_state(target, &chosen.url, total, ranges.len());
     if existing_size != total {
         written = vec![0u64; ranges.len()];
         let _ = std::fs::remove_file(runtime_state_path(target));
@@ -1082,15 +1097,9 @@ async fn download_runtime_archive(
         if written[index] >= expected {
             continue; // 这个分片上次已经下完
         }
-        // 每个分片轮转起始源，避免所有分片都挤在最慢的源上
-        let mut rotated = ordered.clone();
-        let source_count = rotated.len();
-        if source_count > 0 {
-            rotated.rotate_left(index % source_count);
-        }
         join_set.spawn(download_runtime_part(
             index,
-            rotated,
+            ordered.clone(),
             target.to_path_buf(),
             range.0,
             range.1,
@@ -1128,14 +1137,14 @@ async fn download_runtime_archive(
 
     // 取消或失败时保留已下载内容并记下进度，下次接着下
     if let Some(message) = failure {
-        save_runtime_state(target, url, total, &ranges, &final_written);
+        save_runtime_state(target, &chosen.url, total, &ranges, &final_written);
         if AI_RUNTIME_CANCEL.load(Ordering::SeqCst) {
             return Err(format!("已取消下载，已保留 {}，下次会自动继续", human_bytes(saved_bytes)));
         }
         return Err(message);
     }
     if AI_RUNTIME_CANCEL.load(Ordering::SeqCst) {
-        save_runtime_state(target, url, total, &ranges, &final_written);
+        save_runtime_state(target, &chosen.url, total, &ranges, &final_written);
         return Err(format!("已取消下载，已保留 {}，下次会自动继续", human_bytes(saved_bytes)));
     }
     let _ = std::fs::remove_file(runtime_state_path(target));
@@ -1147,7 +1156,24 @@ async fn download_runtime_archive(
         total_bytes: total,
         message: best_label,
     });
-    Ok(total)
+    Ok((total, chosen.url))
+}
+
+/// 检查 7z / zip 文件头，提前挡住损坏或非压缩包的下载内容
+fn archive_signature_ok(path: &std::path::Path) -> Result<(), String> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(path).map_err(|e| format!("无法打开运行时包: {}", e))?;
+    let mut header = [0u8; 6];
+    let read = file.read(&mut header).map_err(|e| format!("无法读取运行时包: {}", e))?;
+    if read < 2 {
+        return Err("运行时包为空或已损坏，请清除下载缓存后重新安装".to_string());
+    }
+    let is_7z = read >= 6 && header == [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C];
+    let is_zip = header[0] == 0x50 && header[1] == 0x4B;
+    if !is_7z && !is_zip {
+        return Err("运行时包格式不正确（下载内容可能已损坏），请点“清除下载缓存”后重新安装".to_string());
+    }
+    Ok(())
 }
 
 fn ai_runtime_target_dir(paths: &AiPaths, runtime_id: &str, version: &str) -> std::path::PathBuf {
@@ -1160,6 +1186,7 @@ async fn install_ai_runtime(
     runtime_id: String,
     mode: String,
     archive_path: Option<String>,
+    skip_sha: Option<bool>,
 ) -> Result<serde_json::Value, String> {
     let paths = ensure_ai_dirs()?;
     let catalog: serde_json::Value =
@@ -1234,33 +1261,64 @@ async fn install_ai_runtime(
         }
 
         let target = std::path::PathBuf::from(&paths.cache).join(asset_name);
-        let size = download_runtime_archive(&app, &runtime_id, &url, &target, expected_size).await?;
-        if let Some(expected) = expected_size {
-            if expected > 0 && size != expected {
-                return Err(format!("运行时包大小不一致：期望 {} 字节，实际 {} 字节", expected, size));
+        // 校验失败时换一个源重下，最多试 3 次，避免用户反复手动重试
+        let mut excluded: Vec<String> = Vec::new();
+        let mut last_failure = String::new();
+        for attempt in 0..3 {
+            match download_runtime_archive(&app, &runtime_id, &url, &target, expected_size, &excluded).await {
+                Err(message) => {
+                    last_failure = message;
+                    break; // 下载失败或用户取消，不再重试
+                }
+                Ok((size, used_source)) => {
+                    let mut ok = true;
+                    if let Some(expected) = expected_size.filter(|value| *value > 0) {
+                        if expected != size {
+                            last_failure = format!("运行时包大小不一致：期望 {} 字节，实际 {} 字节", expected, size);
+                            ok = false;
+                        }
+                    }
+                    if ok && !skip_sha.unwrap_or(false) {
+                        if let Some(expected) = expected_sha.clone() {
+                            emit_runtime_progress(&app, AiRuntimeProgress {
+                                runtime_id: runtime_id.clone(),
+                                phase: "verifying".to_string(),
+                                downloaded_bytes: size,
+                                total_bytes: size,
+                                message: String::new(),
+                            });
+                            let actual = sha256_file(&target)?;
+                            if !actual.eq_ignore_ascii_case(&expected) {
+                                last_failure = format!(
+                                    "下载内容与官方校验值不一致（第 {} 次），正在换一个下载源重试",
+                                    attempt + 1
+                                );
+                                ok = false;
+                            }
+                        }
+                    }
+                    if ok {
+                        last_failure.clear();
+                        break;
+                    }
+                    // 这个源给的文件不对：清掉文件和续传记录，下次换源从头下
+                    excluded.push(used_source);
+                    let _ = std::fs::remove_file(&target);
+                    let _ = std::fs::remove_file(runtime_state_path(&target));
+                }
             }
         }
-        if let Some(expected) = expected_sha.clone() {
-            emit_runtime_progress(&app, AiRuntimeProgress {
-                runtime_id: runtime_id.clone(),
-                phase: "verifying".to_string(),
-                downloaded_bytes: size,
-                total_bytes: size,
-                message: String::new(),
-            });
-            let actual = sha256_file(&target)?;
-            if !actual.eq_ignore_ascii_case(&expected) {
-                // 文件已损坏：清掉缓存和续传记录，避免下次按错误偏移继续拼
-                let _ = std::fs::remove_file(&target);
-                let _ = std::fs::remove_file(runtime_state_path(&target));
-                return Err("运行时包校验失败，已清理损坏的文件，请重新点击安装".to_string());
-            }
+        if !last_failure.is_empty() {
+            return Err(last_failure);
         }
         target
     };
 
     let actual_sha = sha256_file(&archive)?;
     let actual_size = std::fs::metadata(&archive).map(|value| value.len()).unwrap_or(0);
+
+    // 解压前先认一下文件头，避免坏文件把解压库搞崩
+    archive_signature_ok(&archive)?;
 
     // 解压到暂存目录，校验通过后再整体切换，避免半包运行时
     emit_runtime_progress(&app, AiRuntimeProgress {
@@ -1278,15 +1336,25 @@ async fn install_ai_runtime(
     {
         let archive_clone = archive.clone();
         let staging_clone = staging.clone();
-        tokio::task::spawn_blocking(move || {
+        let outcome = tokio::task::spawn_blocking(move || {
             if archive_clone.extension().and_then(|value| value.to_str()) == Some("zip") {
                 extract_zip_archive(&archive_clone, &staging_clone)
             } else {
-                sevenz_rust::decompress_file(&archive_clone, &staging_clone).map_err(|e| format!("解压失败: {}", e))
+                sevenz_rust2::decompress_file(&archive_clone, &staging_clone)
+                    .map_err(|e| format!("解压失败: {}", e))
             }
         })
         .await
-        .map_err(|e| format!("解压任务失败: {}", e))??;
+        .map_err(|e| {
+            format!(
+                "解压失败（{}）。运行时包可能已损坏，请点“清除下载缓存”后重新安装",
+                e
+            )
+        })?;
+        if let Err(message) = outcome {
+            let _ = std::fs::remove_dir_all(&staging);
+            return Err(message);
+        }
     }
 
     let layout_comfy = runtime

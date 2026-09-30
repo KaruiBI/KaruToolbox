@@ -66,6 +66,8 @@ const elements = {
     installBuiltin: document.getElementById('comfyInstallBuiltin'),
     cancelBuiltinInstall: document.getElementById('comfyCancelBuiltinInstall'),
     clearBuiltinCache: document.getElementById('comfyClearBuiltinCache'),
+    installBuiltinFromFile: document.getElementById('comfyInstallFromFile'),
+    importExtractedBuiltin: document.getElementById('comfyImportExtracted'),
     installBuiltinLatest: document.getElementById('comfyInstallBuiltinLatest'),
     startBuiltin: document.getElementById('comfyStartBuiltin'),
     rollbackBuiltin: document.getElementById('comfyRollbackBuiltin'),
@@ -1180,8 +1182,14 @@ function setBuiltinStatus (state, message) {
 }
 
 function setBuiltinBusy (busy) {
-  [elements.installBuiltin, elements.installBuiltinLatest, elements.startBuiltin, elements.rollbackBuiltin]
-    .forEach((button) => { if (button) button.disabled = busy; });
+  [
+    elements.installBuiltin,
+    elements.installBuiltinLatest,
+    elements.startBuiltin,
+    elements.rollbackBuiltin,
+    elements.installBuiltinFromFile,
+    elements.importExtractedBuiltin,
+  ].forEach((button) => { if (button) button.disabled = busy; });
 }
 
 function showBuiltinProgress (percent, text) {
@@ -1266,6 +1274,76 @@ async function refreshBuiltinRuntimeState () {
   }
 }
 
+async function attachBuiltinProgressListener () {
+  const { listen } = await import('@tauri-apps/api/event');
+  return listen('ai-runtime-install-progress', (event) => {
+    const payload = event.payload || {};
+    const percent = payload.totalBytes > 0
+      ? (payload.downloadedBytes / payload.totalBytes) * 100
+      : (payload.phase === 'done' ? 100 : 0);
+    showBuiltinProgress(percent, builtinPhaseText(payload.phase, payload));
+  });
+}
+
+// 用本地已下载的压缩包安装（比如自己用迅雷下的），跳过官方 sha256 比对
+async function installBuiltinFromLocalFile () {
+  if (!isTauri) return;
+  if (builtinInstallActive) return;
+  const { open } = await import('@tauri-apps/plugin-dialog');
+  const selected = await open({
+    multiple: false,
+    title: builtinText('选择已下载的 ComfyUI 便携包（.7z / .zip）', 'Choose the downloaded ComfyUI portable archive (.7z / .zip)'),
+    filters: [{ name: 'Archive', extensions: ['7z', 'zip'] }],
+  });
+  if (typeof selected !== 'string') return;
+  await runLocalBuiltinInstall('offline', selected, true);
+}
+
+// 直接导入已经解压好的 ComfyUI 便携包目录
+async function importExtractedBuiltin () {
+  if (!isTauri) return;
+  if (builtinInstallActive) return;
+  const { open } = await import('@tauri-apps/plugin-dialog');
+  const selected = await open({
+    directory: true,
+    multiple: false,
+    title: builtinText('选择包含 main.py 的 ComfyUI 文件夹', 'Choose the ComfyUI folder containing main.py'),
+  });
+  if (typeof selected !== 'string') return;
+  await runLocalBuiltinInstall('local', selected, true);
+}
+
+async function runLocalBuiltinInstall (mode, targetPath, skipSha) {
+  const runtimeId = elements.builtinRuntime?.value || 'comfyui-windows-nvidia';
+  builtinInstallActive = true;
+  setBuiltinBusy(true);
+  let unlisten = null;
+  try {
+    unlisten = await attachBuiltinProgressListener();
+    showBuiltinProgress(0, builtinText('正在准备本地安装…', 'Preparing local install…'));
+    const manifest = await tauriInvoke('install_ai_runtime', {
+      runtimeId,
+      mode,
+      archivePath: targetPath,
+      skipSha: !!skipSha,
+    });
+    setBuiltinEnabled(true);
+    setBuiltinStatus('online', builtinText(
+      `内置引擎安装完成（${manifest?.version || ''}），点“启动内置引擎”即可开始。`,
+      `Built-in engine installed (${manifest?.version || ''}). Click Start to launch it.`,
+    ));
+    await refreshBuiltinRuntimeState();
+    await refreshModelInventory().catch(() => {});
+  } catch (error) {
+    setBuiltinStatus('error', error?.message || String(error));
+  } finally {
+    if (unlisten) unlisten();
+    builtinInstallActive = false;
+    setBuiltinBusy(false);
+    hideBuiltinProgress();
+  }
+}
+
 async function installBuiltinRuntime (mode) {
   if (!isTauri) {
     setBuiltinStatus('error', builtinText('内置引擎需要在 Karui 桌面版中使用。', 'The built-in engine requires the Karui desktop app.'));
@@ -1277,14 +1355,7 @@ async function installBuiltinRuntime (mode) {
   setBuiltinBusy(true);
   let unlisten = null;
   try {
-    const { listen } = await import('@tauri-apps/api/event');
-    unlisten = await listen('ai-runtime-install-progress', (event) => {
-      const payload = event.payload || {};
-      const percent = payload.totalBytes > 0
-        ? (payload.downloadedBytes / payload.totalBytes) * 100
-        : (payload.phase === 'done' ? 100 : 0);
-      showBuiltinProgress(percent, builtinPhaseText(payload.phase, payload));
-    });
+    unlisten = await attachBuiltinProgressListener();
     showBuiltinProgress(0, builtinText('正在准备…', 'Preparing…'));
     if (elements.cancelBuiltinInstall) elements.cancelBuiltinInstall.hidden = false;
 
@@ -2641,6 +2712,12 @@ elements.builtinRuntime?.addEventListener('change', () => {
 });
 elements.installBuiltin?.addEventListener('click', () => installBuiltinRuntime('offline'));
 elements.installBuiltinLatest?.addEventListener('click', () => installBuiltinRuntime('online'));
+elements.installBuiltinFromFile?.addEventListener('click', () => {
+  installBuiltinFromLocalFile().catch((error) => setBuiltinStatus('error', error?.message || String(error)));
+});
+elements.importExtractedBuiltin?.addEventListener('click', () => {
+  importExtractedBuiltin().catch((error) => setBuiltinStatus('error', error?.message || String(error)));
+});
 elements.clearBuiltinCache?.addEventListener('click', async () => {
   if (builtinInstallActive) return;
   try {

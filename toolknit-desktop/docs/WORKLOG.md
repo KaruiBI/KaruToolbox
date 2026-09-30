@@ -297,6 +297,22 @@ Rust cargo check --offline：通过（仅保留 2 个既有 unused import 警告
 
 验证：Rust `cargo check` 通过。
 
+修复（同日）：解压崩溃（`attempt to add with overflow`）与下载可靠性。
+
+用户报解压阶段崩溃。该 panic 来自 `sevenz-rust 0.6` 的解码实现，下载的包本身 sha256 已通过。
+
+- 解压库从 `sevenz-rust 0.6` 换成社区维护的 `sevenz-rust2 0.23`（官方包不再更新，2.x 分支包含大量解码修复）；
+- 解压前先校验文件头（7z 魔数 `37 7A BC AF 27 1C` 或 zip `PK`），坏文件提前拦截，不再把解压库搞崩；
+- 解压失败时清理暂存目录，报错文案引导「清除下载缓存后重新安装」；
+- 下载改为单源模式：测速后只选一个源，所有分片走同一源（不同镜像可能缓存不同版本，混用会拼出坏文件）；探测阶段即校验文件大小，与清单不符的源直接排除；
+- sha256 校验失败自动换源重下，最多 3 次，不再让用户手动重试；
+- 分片数从 6 降到 4，降低对镜像站的压力；
+- `install_ai_runtime` 新增 `skipSha` 参数与两个新入口：
+  「用本地压缩包安装」（选自己下载的 .7z/.zip，跳过官方哈希比对）和
+  「导入已解压目录」（直接用已解压的 ComfyUI 便携包）。
+
+验证：Rust `cargo check` 通过；esbuild 打包通过；`index.html` 结构配对检查通过。
+
 ## 当前风险与技术债
 
 1. `src/main.js`、`src/styles.css` 和 `index.html` 体积很大，新功能必须模块化。
