@@ -959,44 +959,71 @@ function setTutorialMode (mode) {
   });
 }
 
-function syncTutorialPaths () {
+// 引擎的模型根目录：内置引擎在统一目录 AI\data\models，本地引擎在其 ComfyUI\models
+function getEngineModelRoot () {
+  const builtinData = builtinRuntimeState?.paths?.data;
+  if (builtinData) return `${builtinData.replace(/[\\/]+$/, '')}\\models`;
   const config = loadConfig();
-  const root = config.mode === 'local' && config.localPath
-    ? config.localPath.replace(/[\\/]+$/, '')
-    : '';
+  if (config.mode === 'local' && config.localPath) {
+    return `${config.localPath.replace(/[\\/]+$/, '')}\\models`;
+  }
+  return '';
+}
+
+// 引擎的 ComfyUI 目录（custom_nodes 所在处）
+function getEngineComfyDir () {
+  if (builtinRuntimeState?.installed?.comfyDir) {
+    return builtinRuntimeState.installed.comfyDir.replace(/[\\/]+$/, '');
+  }
+  const config = loadConfig();
+  if (config.mode === 'local' && config.localPath) {
+    return config.localPath.replace(/[\\/]+$/, '');
+  }
+  return '';
+}
+
+function syncTutorialPaths () {
+  const modelRoot = getEngineModelRoot();
+  const comfyRoot = getEngineComfyDir();
   const pathPending = t('comfyStudio.tutorialPathPending');
   const paths = {
-    tutorialRootPath: root || pathPending,
-    tutorialCustomNodesPath: root ? `${root}\\custom_nodes` : pathPending,
-    tutorialDiffusionPath: root ? `${root}\\models\\diffusion_models` : pathPending,
-    tutorialClipPath: root ? `${root}\\models\\text_encoders` : pathPending,
-    tutorialVaePath: root ? `${root}\\models\\vae` : pathPending,
+    tutorialRootPath: comfyRoot || pathPending,
+    tutorialCustomNodesPath: comfyRoot ? `${comfyRoot}\\custom_nodes` : pathPending,
+    tutorialDiffusionPath: modelRoot ? `${modelRoot}\\diffusion_models` : pathPending,
+    tutorialClipPath: modelRoot ? `${modelRoot}\\text_encoders` : pathPending,
+    tutorialVaePath: modelRoot ? `${modelRoot}\\vae` : pathPending,
   };
   Object.entries(paths).forEach(([key, path]) => {
     if (elements[key]) elements[key].textContent = path;
   });
   document.querySelectorAll('[data-comfy-folder]').forEach((button) => {
-    button.disabled = config.mode !== 'local' || !config.localPath;
+    button.disabled = !(comfyRoot || modelRoot);
   });
 }
 
 function getTutorialFolderPath (folder) {
-  const config = loadConfig();
-  if (config.mode !== 'local' || !config.localPath) return '';
-  const root = config.localPath.replace(/[\\/]+$/, '');
+  const modelRoot = getEngineModelRoot();
+  const comfyRoot = getEngineComfyDir();
   const folders = {
-    root,
-    checkpoints: `${root}\\models\\checkpoints`,
-    customNodes: `${root}\\custom_nodes`,
-    diffusion: `${root}\\models\\diffusion_models`,
-    clip: `${root}\\models\\text_encoders`,
-    vae: `${root}\\models\\vae`,
-    clipProjection: `${root}\\models\\clip_projections`,
+    root: comfyRoot,
+    checkpoints: modelRoot ? `${modelRoot}\\checkpoints` : '',
+    customNodes: comfyRoot ? `${comfyRoot}\\custom_nodes` : '',
+    diffusion: modelRoot ? `${modelRoot}\\diffusion_models` : '',
+    clip: modelRoot ? `${modelRoot}\\text_encoders` : '',
+    vae: modelRoot ? `${modelRoot}\\vae` : '',
+    clipProjection: modelRoot ? `${modelRoot}\\clip_projections` : '',
   };
   return folders[folder] || '';
 }
 
 function openTutorial (requestedMode) {
+  // 内置引擎路径需要先向后端拿一次，拿到后再刷新教程里的目录显示
+  if (isTauri && !builtinRuntimeState) {
+    refreshBuiltinRuntimeState().then(() => {
+      syncTutorialPaths();
+      syncModelAccess();
+    });
+  }
   syncModelAccess();
   syncTutorialPaths();
   const mode = typeof requestedMode === 'string'
@@ -1019,15 +1046,12 @@ function closeTutorial () {
 }
 
 function getCheckpointPath () {
-  const config = loadConfig();
-  if (config.mode !== 'local' || !config.localPath) return '';
-  return `${config.localPath.replace(/[\\/]+$/, '')}\\models\\checkpoints`;
+  const modelRoot = getEngineModelRoot();
+  return modelRoot ? `${modelRoot}\\checkpoints` : '';
 }
 
 function syncModelAccess (config = loadConfig()) {
-  const checkpointPath = config.mode === 'local' && config.localPath
-    ? `${config.localPath.replace(/[\\/]+$/, '')}\\models\\checkpoints`
-    : '';
+  const checkpointPath = getCheckpointPath();
   if (elements.tutorialModelPath) {
     elements.tutorialModelPath.textContent = checkpointPath || t('comfyStudio.tutorialPathPending');
     elements.tutorialModelPath.hidden = false;
@@ -1260,6 +1284,7 @@ async function refreshBuiltinRuntimeState () {
     const state = await tauriInvoke('get_ai_runtime_state');
     const installed = state?.installed;
     const hasInstall = !!installed?.version;
+    if (hasInstall) setBuiltinEnabled(true);
     if (hasInstall) {
       setBuiltinStatus('online', builtinText(
         `内置引擎已安装：${installed.runtimeId || ''} ${installed.version}`,
@@ -2534,7 +2559,8 @@ async function importWorkflowFile (file) {
 
 async function installVideoHelper () {
   const config = loadConfig();
-  if (!isTauri || config.mode !== 'local' || !config.localPath) {
+  const comfyPath = getEngineComfyDir();
+  if (!isTauri || !comfyPath) {
     throw new Error(t('comfyStudio.videoInstallLocalOnly'));
   }
   elements.installVideoHelper.disabled = true;
@@ -2543,7 +2569,7 @@ async function installVideoHelper () {
   elements.videoInstallStatus.textContent = t('comfyStudio.videoInstalling');
   try {
     const message = await tauriInvoke('install_comfy_video_helper', {
-      comfyPath: config.localPath,
+      comfyPath,
       pythonPath: config.pythonPath || '',
     });
     const processStatus = await tauriInvoke('comfy_process_status');
@@ -2570,7 +2596,8 @@ async function installVideoHelper () {
 
 async function installH3Nodes () {
   const config = loadConfig();
-  if (!isTauri || config.mode !== 'local' || !config.localPath) {
+  const comfyPath = getEngineComfyDir();
+  if (!isTauri || !comfyPath) {
     throw new Error(t('comfyStudio.videoInstallLocalOnly'));
   }
   elements.installH3Nodes.disabled = true;
@@ -2578,7 +2605,7 @@ async function installH3Nodes () {
   elements.h3InstallStatus.dataset.state = 'working';
   elements.h3InstallStatus.textContent = '正在安装 H3 低显存节点…';
   try {
-    const message = await tauriInvoke('install_comfy_h3_nodes', { comfyPath: config.localPath });
+    const message = await tauriInvoke('install_comfy_h3_nodes', { comfyPath });
     const processStatus = await tauriInvoke('comfy_process_status');
     if (processStatus?.running) {
       elements.h3InstallStatus.textContent = '正在重启 ComfyUI…';

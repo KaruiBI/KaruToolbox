@@ -333,6 +333,23 @@ Rust cargo check --offline：通过（仅保留 2 个既有 unused import 警告
 
 验证：Rust `cargo check` 通过；esbuild 打包通过；locale JSON 解析通过。
 
+补充（同日）：教程与模型目录全面适配内置引擎。
+
+用户在内置引擎模式下打开 AI Studio 教程，「程序内下载」「打开存放目录」等按钮全部禁用——
+教程仍按"自己装的 ComfyUI"（`config.localPath`）判断。
+
+- 新增 `getEngineModelRoot()`（内置 = `AI\data\models`，本地 = `<ComfyUI>\models`）与
+  `getEngineComfyDir()`（内置 = runtime 内的 ComfyUI 目录）；
+- `syncTutorialPaths`、`getTutorialFolderPath`、`getCheckpointPath`、`syncModelAccess` 全部改走这两个函数，
+  「打开存放目录」在内置模式指向统一模型目录；
+- `installVideoHelper` / `installH3Nodes` 在内置模式下把节点装进 runtime 的 `custom_nodes`
+  （后端 `install_comfy_video_helper` / `install_comfy_h3_nodes` 已支持传入任意 ComfyUI 目录与
+  `python_embeded` pip）；
+- `openTutorial` 首次打开时预取内置引擎路径后再刷新目录显示；
+- 内置模式启用后 `setBuiltinEnabled(true)`，模型下载守卫放行并写入统一模型目录。
+
+验证：esbuild 打包通过。
+
 ## 当前风险与技术债
 
 1. `src/main.js`、`src/styles.css` 和 `index.html` 体积很大，新功能必须模块化。
