@@ -1265,6 +1265,14 @@ async function refreshBuiltinRuntimeState () {
         `内置引擎已安装：${installed.runtimeId || ''} ${installed.version}`,
         `Built-in engine installed: ${installed.runtimeId || ''} ${installed.version}`,
       ));
+      // 打开面板时探测一次引擎是否真的在跑，让状态与按钮一致
+      testConnection({ updateCard: false }).then(() => {
+        setBuiltinStatus('online', builtinText(
+          '内置引擎运行中，直接去生成即可。',
+          'Built-in engine is running. You are ready to generate.',
+        ));
+        if (elements.startEngine) elements.startEngine.hidden = true;
+      }).catch(() => { /* 引擎没在跑：保持已安装提示，用户可点启动 */ });
     } else {
       setBuiltinStatus('idle', builtinText(
         '还没装内置引擎，点下面的按钮装好就能直接用（约 2GB）。',
