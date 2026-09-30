@@ -4804,7 +4804,62 @@
                 </div>
                 <div class="comfy-tutorial-panel active" data-tutorial-panel="image">
                     <ol class="comfy-tutorial-steps">
-                        <li class="comfy-tutorial-download-step" id="comfyWanGuide">
+                        <li class="comfy-tutorial-download-step">
+                            <div class="comfy-tutorial-step-icon"><i data-lucide="download"></i></div>
+                            <div>
+                                <h3 data-i18n="comfyStudio.tutorialInstallBuiltinTitle">第一步：安装内置引擎</h3>
+                                <p data-i18n="comfyStudio.tutorialInstallBuiltinDesc">打开「AI 引擎设置」，程序会自动识别你的显卡，点「一键安装内置引擎」即可。下载慢就按页面里的手动教程：浏览器下载、解压、导入。</p>
+                                <div class="comfy-download-actions">
+                                    <button type="button" id="comfyTutorialOpenEngine">
+                                        <i data-lucide="settings-2"></i><span data-i18n="comfyStudio.tutorialOpenEngine">打开 AI 引擎设置</span>
+                                    </button>
+                                </div>
+                                <div class="comfy-download-tip">
+                                    <i data-lucide="info"></i><span data-i18n="comfyStudio.tutorialEngineTip">状态显示「已安装」就完成了。之后所有模型自动放进统一目录，不需要选位置。</span>
+                                </div>
+                            </div>
+                        </li>
+                        <li>
+                            <div class="comfy-tutorial-step-icon"><i data-lucide="box"></i></div>
+                            <div>
+                                <h3 data-i18n="comfyStudio.tutorialModelTitle">第二步：安装基础模型</h3>
+                                <p data-i18n="comfyStudio.tutorialModelDesc">把 .safetensors 或 .ckpt 模型文件放入 checkpoints 目录，然后重新启动引擎。</p>
+                                <code id="comfyTutorialModelPath"></code>
+                                <div class="comfy-download-actions">
+                                    <button type="button" class="secondary" data-comfy-folder="checkpoints">
+                                        <i data-lucide="folder-open"></i><span data-i18n="comfyStudio.openModelFolder">打开模型文件夹</span>
+                                    </button>
+                                    <button type="button" class="secondary" disabled title="百度网盘地址待提供">
+                                        <i data-lucide="cloud"></i><span data-i18n="comfyStudio.baiduDownloadPending">百度网盘（待提供）</span>
+                                    </button>
+                                    <button class="comfy-open-model-center" id="comfyOpenModelCenter" type="button" hidden>
+                                        <i data-lucide="boxes"></i><span data-i18n="comfyStudio.openModelCenter">打开模型中心</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </li>
+                        <li>
+                            <div class="comfy-tutorial-step-icon"><i data-lucide="plug-zap"></i></div>
+                            <div>
+                                <h3 data-i18n="comfyStudio.tutorialConnectTitle">第三步：启动引擎</h3>
+                                <p data-i18n="comfyStudio.tutorialConnectDesc">在 AI 引擎设置里点「启动内置引擎」，等状态变成「已连接」就可以生成了（首次启动约需半分钟）。
+                                </p>
+                            </div>
+                        </li>
+                        <li>
+                            <div class="comfy-tutorial-step-icon"><i data-lucide="image"></i></div>
+                            <div>
+                                <h3 data-i18n="comfyStudio.tutorialImageTitle">第四步：生成第一张图片</h3>
+                                <p data-i18n="comfyStudio.tutorialImageDesc">返回图片生成页，选择基础模型，输入提示词，然后点击“开始生成”。结果会自动保存到 Karui 输出目录。</p>
+                            </div>
+                        </li>
+                        <li class="comfy-tutorial-advanced-li">
+                            <details class="comfy-advanced" id="comfyTutorialAdvanced">
+                                <summary><i data-lucide="layers"></i><span data-i18n="comfyStudio.tutorialAdvancedTitle">高级用户：使用自己的 ComfyUI</span></summary>
+                                <div class="comfy-advanced-content">
+                                    <p data-i18n="comfyStudio.tutorialAdvancedDesc">已经装过 ComfyUI 的人可以不走内置引擎：在 AI 引擎设置切换到「自己的 ComfyUI」或「Desktop / 远程」再按下面步骤操作。</p>
+                                    <ol class="comfy-tutorial-steps">
+<li class="comfy-tutorial-download-step" id="comfyWanGuide">
                             <div class="comfy-tutorial-step-icon"><i data-lucide="download"></i></div>
                             <div>
                                 <h3 data-i18n="comfyStudio.tutorialInstallTitle">下载本地生成引擎</h3>
@@ -4861,39 +4916,9 @@
                                 </div>
                             </div>
                         </li>
-                        <li>
-                            <div class="comfy-tutorial-step-icon"><i data-lucide="box"></i></div>
-                            <div>
-                                <h3 data-i18n="comfyStudio.tutorialModelTitle">安装基础模型</h3>
-                                <p data-i18n="comfyStudio.tutorialModelDesc">把 .safetensors 或 .ckpt 模型文件放入 checkpoints 目录，然后重新启动引擎。</p>
-                                <code id="comfyTutorialModelPath"></code>
-                                <div class="comfy-download-actions">
-                                    <button type="button" class="secondary" data-comfy-folder="checkpoints">
-                                        <i data-lucide="folder-open"></i><span data-i18n="comfyStudio.openModelFolder">打开模型文件夹</span>
-                                    </button>
-                                    <button type="button" class="secondary" disabled title="百度网盘地址待提供">
-                                        <i data-lucide="cloud"></i><span data-i18n="comfyStudio.baiduDownloadPending">百度网盘（待提供）</span>
-                                    </button>
-                                    <button class="comfy-open-model-center" id="comfyOpenModelCenter" type="button" hidden>
-                                        <i data-lucide="boxes"></i><span data-i18n="comfyStudio.openModelCenter">打开模型中心</span>
-                                    </button>
+                                    </ol>
                                 </div>
-                            </div>
-                        </li>
-                        <li>
-                            <div class="comfy-tutorial-step-icon"><i data-lucide="plug-zap"></i></div>
-                            <div>
-                                <h3 data-i18n="comfyStudio.tutorialConnectTitle">启动并测试连接</h3>
-                                <p data-i18n="comfyStudio.tutorialConnectDesc">便携版选择目录后点击“保存并启动”；Desktop 安装版先启动 ComfyUI，再选择“远程引擎”并测试连接。
-                                </p>
-                            </div>
-                        </li>
-                        <li>
-                            <div class="comfy-tutorial-step-icon"><i data-lucide="image"></i></div>
-                            <div>
-                                <h3 data-i18n="comfyStudio.tutorialImageTitle">生成第一张图片</h3>
-                                <p data-i18n="comfyStudio.tutorialImageDesc">返回图片生成页，选择基础模型，输入提示词，然后点击“开始生成”。结果会自动保存到 Karui 输出目录。</p>
-                            </div>
+                            </details>
                         </li>
                     </ol>
                 </div>

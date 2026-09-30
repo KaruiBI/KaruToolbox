@@ -2654,6 +2654,10 @@ elements.pageOpenSettings?.addEventListener('click', (event) => {
 });
 elements.engineBack?.addEventListener('click', closeEngineSettings);
 elements.openTutorial?.addEventListener('click', openTutorial);
+document.getElementById('comfyTutorialOpenEngine')?.addEventListener('click', () => {
+  closeTutorial();
+  openEngineSettings();
+});
 elements.pageOpenTutorial?.addEventListener('click', openTutorial);
 elements.videoInstallHelp?.addEventListener('click', () => openTutorial('video'));
 elements.installVideoHelper?.addEventListener('click', installVideoHelper);
