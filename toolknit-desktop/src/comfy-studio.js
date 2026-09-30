@@ -26,6 +26,7 @@ const CONFIG_KEY = 'karui-comfy-engine-v1';
 const PROMPT_LIBRARY_KEY = 'karui-comfy-prompt-library-v1';
 const PROMPT_DRAFT_KEY = 'karui-comfy-prompt-draft-v1';
 const VIDEO_ENGINE_KEY = 'karui-video-engine-v1';
+const BUILTIN_KEY = 'karui-builtin-engine-v1';
 const H3_SIZE_PRESETS = [
   { id: 'h3-wide', label: { zh: '16:9 横屏', en: '16:9 Landscape' }, width: 608, height: 352 },
   { id: 'h3-tall', label: { zh: '9:16 竖屏', en: '9:16 Portrait' }, width: 352, height: 608 },
@@ -52,6 +53,16 @@ const elements = {
     autoStart: document.getElementById('comfyAutoStart'),
     lowVram: document.getElementById('comfyLowVram'),
     browsePath: document.getElementById('comfyBrowsePath'),
+    builtinRuntime: document.getElementById('comfyBuiltinRuntime'),
+    builtinStatus: document.getElementById('comfyBuiltinStatus'),
+    builtinStatusText: document.getElementById('comfyBuiltinStatusText'),
+    builtinProgress: document.getElementById('comfyBuiltinProgress'),
+    builtinProgressFill: document.getElementById('comfyBuiltinProgressFill'),
+    builtinProgressText: document.getElementById('comfyBuiltinProgressText'),
+    installBuiltin: document.getElementById('comfyInstallBuiltin'),
+    installBuiltinLatest: document.getElementById('comfyInstallBuiltinLatest'),
+    startBuiltin: document.getElementById('comfyStartBuiltin'),
+    rollbackBuiltin: document.getElementById('comfyRollbackBuiltin'),
     engineStatus: document.getElementById('comfyEngineStatus'),
     startEngine: document.getElementById('comfyStartEngine'),
     stopEngine: document.getElementById('comfyStopEngine'),
@@ -225,6 +236,7 @@ let hardwarePollTimer = null;
 let hardwareRequestPending = false;
 let lastHardwareStatus = null;
 let modelDownloadActive = false;
+let builtinInstallActive = false;
 
 function loadConfig() {
     const fallback = {
@@ -374,10 +386,11 @@ async function downloadModelInApp(button) {
   const folder = button.dataset.comfyFolder || (model ? 'diffusion' : '');
   const url = button.dataset.comfyDownload || model?.url || '';
   const showInline = !!button.closest('#comfyH3Guide');
-  if (config.mode !== 'local' || !config.localPath) {
+  const useBuiltin = builtinEnabled();
+  if (config.mode !== 'local' || (!config.localPath && !useBuiltin)) {
     setModelDownloadStatus('error', filename, modelDownloadText(
-      '请先在“设置 → 本地引擎”中选择包含 main.py 的 ComfyUI 文件夹。',
-      'Choose the ComfyUI folder containing main.py in Settings → Local Engine first.',
+      '请先安装内置引擎，或在“设置 → 本地引擎”中选择包含 main.py 的 ComfyUI 文件夹。',
+      'Install the built-in engine first, or choose the ComfyUI folder containing main.py in Settings → Local Engine.',
     ), 0, showInline);
     return;
   }
@@ -411,7 +424,7 @@ async function downloadModelInApp(button) {
       ), percent, showInline);
     });
     const savedPath = await tauriInvoke('download_comfy_model', {
-      comfyPath: config.localPath,
+      comfyPath: useBuiltin ? '' : config.localPath,
       url,
       filename,
       folder,
@@ -802,6 +815,7 @@ function openEngineSettings () {
   elements.engineOverlay.classList.add('visible');
   elements.engineOverlay.setAttribute('aria-hidden', 'false');
   startHardwareMonitor();
+  refreshBuiltinRuntimeState();
   syncEngineStatusFromConnection();
   testConnection().catch(() => {
     // testConnection updates the visible status with the connection error.
@@ -1026,6 +1040,179 @@ async function stopLocalEngine () {
   await tauriInvoke('stop_comfy_local');
   setEngineStatus('idle', t('comfyStudio.stopped'));
   setConnectionStatus('offline', t('comfyStudio.offline'));
+}
+
+/* ---------------- 内置运行时（Karui 自带生成引擎） ---------------- */
+
+function builtinText (zh, en) {
+  return document.body.classList.contains('lang-zh') ? zh : en;
+}
+
+function builtinEnabled () {
+  return localStorage.getItem(BUILTIN_KEY) === 'on';
+}
+
+function setBuiltinEnabled (enabled) {
+  if (enabled) localStorage.setItem(BUILTIN_KEY, 'on');
+  else localStorage.removeItem(BUILTIN_KEY);
+}
+
+function setBuiltinStatus (state, message) {
+  if (!elements.builtinStatus) return;
+  elements.builtinStatus.dataset.state = state;
+  if (elements.builtinStatusText) elements.builtinStatusText.textContent = message;
+}
+
+function setBuiltinBusy (busy) {
+  [elements.installBuiltin, elements.installBuiltinLatest, elements.startBuiltin, elements.rollbackBuiltin]
+    .forEach((button) => { if (button) button.disabled = busy; });
+}
+
+function showBuiltinProgress (percent, text) {
+  if (!elements.builtinProgress) return;
+  elements.builtinProgress.hidden = false;
+  if (elements.builtinProgressFill) elements.builtinProgressFill.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+  if (elements.builtinProgressText) elements.builtinProgressText.textContent = text;
+}
+
+function hideBuiltinProgress () {
+  if (elements.builtinProgress) elements.builtinProgress.hidden = true;
+}
+
+function builtinPhaseText (phase, payload) {
+  const downloaded = Number(payload?.downloadedBytes) || 0;
+  const total = Number(payload?.totalBytes) || 0;
+  const size = total > 0 ? `${formatBytes(downloaded)} / ${formatBytes(total)}` : formatBytes(downloaded);
+  const map = {
+    downloading: builtinText(`正在下载内置引擎… ${size}`, `Downloading built-in engine… ${size}`),
+    verifying: builtinText('正在校验文件完整性…', 'Verifying file integrity…'),
+    extracting: builtinText('正在解压，这一步比较慢，请耐心等待…', 'Extracting, this takes a while…'),
+    done: builtinText('内置引擎安装完成', 'Built-in engine installed'),
+  };
+  return map[phase] || builtinText('正在准备…', 'Preparing…');
+}
+
+async function refreshBuiltinRuntimeState () {
+  if (!isTauri || !elements.builtinStatus) return null;
+  try {
+    const state = await tauriInvoke('get_ai_runtime_state');
+    const installed = state?.installed;
+    if (installed?.version) {
+      setBuiltinStatus('online', builtinText(
+        `内置引擎已安装：${installed.runtimeId || ''} ${installed.version}`,
+        `Built-in engine installed: ${installed.runtimeId || ''} ${installed.version}`,
+      ));
+    } else {
+      setBuiltinStatus('idle', builtinText(
+        '还没装内置引擎，点下面的按钮装好就能直接用（约 2GB）。',
+        'Built-in engine is not installed yet. Click the button below to install it (~2GB).',
+      ));
+    }
+    if (elements.rollbackBuiltin) elements.rollbackBuiltin.hidden = !installed?.previous;
+    return state;
+  } catch (error) {
+    setBuiltinStatus('error', error?.message || String(error));
+    return null;
+  }
+}
+
+async function installBuiltinRuntime (mode) {
+  if (!isTauri) {
+    setBuiltinStatus('error', builtinText('内置引擎需要在 Karui 桌面版中使用。', 'The built-in engine requires the Karui desktop app.'));
+    return;
+  }
+  if (builtinInstallActive) return;
+  const runtimeId = elements.builtinRuntime?.value || 'comfyui-windows-nvidia';
+  builtinInstallActive = true;
+  setBuiltinBusy(true);
+  let unlisten = null;
+  try {
+    const { listen } = await import('@tauri-apps/api/event');
+    unlisten = await listen('ai-runtime-install-progress', (event) => {
+      const payload = event.payload || {};
+      const percent = payload.totalBytes > 0
+        ? (payload.downloadedBytes / payload.totalBytes) * 100
+        : (payload.phase === 'done' ? 100 : 0);
+      showBuiltinProgress(percent, builtinPhaseText(payload.phase, payload));
+    });
+    showBuiltinProgress(0, builtinText('正在准备…', 'Preparing…'));
+
+    let useMode = mode;
+    let archivePath = null;
+    if (mode === 'offline') {
+      archivePath = await tauriInvoke('find_bundled_ai_runtime', { runtimeId, mode });
+      if (!archivePath) useMode = 'online'; // 离线包不在本机时自动改为下载
+    }
+    const manifest = await tauriInvoke('install_ai_runtime', { runtimeId, mode: useMode, archivePath });
+    setBuiltinEnabled(true);
+    setBuiltinStatus('online', builtinText(
+      `内置引擎安装完成（${manifest?.version || ''}），点“启动内置引擎”即可开始。`,
+      `Built-in engine installed (${manifest?.version || ''}). Click Start to launch it.`,
+    ));
+    await refreshBuiltinRuntimeState();
+    await refreshModelInventory().catch(() => {});
+  } catch (error) {
+    setBuiltinStatus('error', error?.message || String(error));
+  } finally {
+    if (unlisten) unlisten();
+    builtinInstallActive = false;
+    setBuiltinBusy(false);
+    hideBuiltinProgress();
+  }
+}
+
+async function startBuiltinRuntime () {
+  if (!isTauri) {
+    setBuiltinStatus('error', builtinText('内置引擎需要在 Karui 桌面版中使用。', 'The built-in engine requires the Karui desktop app.'));
+    return;
+  }
+  const config = saveConfig();
+  setBuiltinBusy(true);
+  try {
+    let port = 8188;
+    try { port = Number(new URL(config.serverUrl).port) || 8188; } catch (_) { port = 8188; }
+    setBuiltinStatus('idle', builtinText('正在启动内置引擎…', 'Starting built-in engine…'));
+    const info = await tauriInvoke('start_ai_runtime', { port, lowVram: !!config.lowVram });
+    if (elements.serverUrl) elements.serverUrl.value = info.baseUrl;
+    engineConfig = saveConfig();
+    setBuiltinEnabled(true);
+    setBuiltinStatus('online', builtinText(
+      `内置引擎已启动：${info.baseUrl}`,
+      `Built-in engine running at ${info.baseUrl}`,
+    ));
+    for (let attempt = 0; attempt < 45; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      try {
+        await testConnection();
+        setBuiltinStatus('online', builtinText('内置引擎已连接，可以开始生成了。', 'Built-in engine connected. You are ready to generate.'));
+        return;
+      } catch (error) {
+        setBuiltinStatus('idle', `${builtinText('正在等待引擎就绪…', 'Waiting for the engine…')} ${attempt + 1}/45`);
+      }
+    }
+    setBuiltinStatus('error', t('comfyStudio.connectionFailed'));
+  } catch (error) {
+    setBuiltinStatus('error', error?.message || String(error));
+  } finally {
+    setBuiltinBusy(false);
+  }
+}
+
+async function rollbackBuiltinRuntime () {
+  if (!isTauri) return;
+  setBuiltinBusy(true);
+  try {
+    const previous = await tauriInvoke('rollback_ai_runtime');
+    setBuiltinStatus('idle', builtinText(
+      `已回滚到 ${previous?.version || '上一版'}，下次启动生效。`,
+      `Rolled back to ${previous?.version || 'previous version'}. It takes effect on next start.`,
+    ));
+    await refreshBuiltinRuntimeState();
+  } catch (error) {
+    setBuiltinStatus('error', error?.message || String(error));
+  } finally {
+    setBuiltinBusy(false);
+  }
 }
 
 /* ---------------- 提示词工作台 ---------------- */
@@ -2234,6 +2421,7 @@ elements.modelDownloadHide?.addEventListener('click', () => {
 });
 document.querySelectorAll('[data-comfy-folder]').forEach((button) => {
   button.addEventListener('click', async () => {
+    if (button.dataset.comfyDownload) return;
     const path = getTutorialFolderPath(button.dataset.comfyFolder);
     if (path) await tauriInvoke('open_path', { path });
   });
@@ -2283,6 +2471,10 @@ elements.stopEngine?.addEventListener('click', async () => {
   try { await stopLocalEngine(); }
   catch (error) { setEngineStatus('error', error.message || String(error)); }
 });
+elements.installBuiltin?.addEventListener('click', () => installBuiltinRuntime('offline'));
+elements.installBuiltinLatest?.addEventListener('click', () => installBuiltinRuntime('online'));
+elements.startBuiltin?.addEventListener('click', () => startBuiltinRuntime());
+elements.rollbackBuiltin?.addEventListener('click', () => rollbackBuiltinRuntime());
 elements.studioTabs?.addEventListener('click', (event) => {
   const button = event.target.closest('button[data-studio-mode]');
   if (button) setStudioMode(button.dataset.studioMode);

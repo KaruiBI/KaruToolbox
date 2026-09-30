@@ -207,7 +207,20 @@ Rust cargo check --offline：通过（仅保留 2 个既有 unused import 警告
 
 验证：Rust `cargo check` 通过（仅保留既有 `CommandExt` 未使用警告）；catalog JSON 校验通过（5 个运行时 × offline/online）。
 
-尚未实现：前端引擎安装与状态 UI、离线版打包脚本、真实 NVIDIA 机器上的离线出图闭环（阶段 A 第 5 步）。
+### 2026-09-30：内置引擎 UI（AI 引擎面板）
+
+- 引擎面板顶部新增「内置引擎（推荐）」卡片：显卡类型下拉（NVIDIA / NVIDIA 旧卡 / AMD / Intel）、
+  安装状态、进度条、四个按钮（安装内置引擎 / 下载最新版 / 启动内置引擎 / 回滚上一版）；
+- `comfy-studio.js` 新增 `refreshBuiltinRuntimeState`、`installBuiltinRuntime`、`startBuiltinRuntime`、
+  `rollbackBuiltinRuntime`，监听 `ai-runtime-install-progress`，打开引擎面板时自动刷新状态；
+- 点「安装内置引擎」先查随包离线归档（`find_bundled_ai_runtime`），本机没有时自动改为在线下载；
+- 启动内置引擎后回写服务地址并走现有连接测试；内置模式启用后模型下载不再要求用户选择 ComfyUI 目录，
+  `download_comfy_model` 传空 `comfyPath`，模型落到统一目录 `AI/data/models`；
+- 中英文案已补齐（`comfyStudio.builtin*`、`runtime*`）。
+
+验证：esbuild 打包通过；locale JSON 解析通过。
+
+尚未实现：离线版打包脚本（把 7z 放进 `resources/ai-runtime`）、真实 NVIDIA 机器上的离线出图闭环（阶段 A 第 5 步）。
 
 ## 当前风险与技术债
 

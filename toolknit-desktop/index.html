@@ -4654,6 +4654,44 @@
                 <p class="comfy-hardware-note" data-i18n="comfyStudio.hardwareDisclaimer">建议为保守估算，实际占用会随模型精度、节点、分辨率和批次数变化；运行时请以实时显存为准。</p>
             </section>
             <section class="comfy-engine-card">
+                <div class="comfy-hardware-head">
+                    <div>
+                        <span class="comfy-kicker">BUILT-IN ENGINE</span>
+                        <h3 data-i18n="comfyStudio.builtinTitle">内置引擎（推荐）</h3>
+                        <p data-i18n="comfyStudio.builtinLead">Karui 自带生成引擎，不用自己安装和配置 ComfyUI，装好就能用。</p>
+                    </div>
+                </div>
+                <label class="comfy-field">
+                    <span data-i18n="comfyStudio.builtinGpuType">显卡类型</span>
+                    <select id="comfyBuiltinRuntime">
+                        <option value="comfyui-windows-nvidia" data-i18n="comfyStudio.runtimeNvidia">NVIDIA 显卡（最常见）</option>
+                        <option value="comfyui-windows-nvidia-cu126" data-i18n="comfyStudio.runtimeNvidiaOld">NVIDIA 旧显卡（CUDA 12.6）</option>
+                        <option value="comfyui-windows-amd" data-i18n="comfyStudio.runtimeAmd">AMD 显卡</option>
+                        <option value="comfyui-windows-intel" data-i18n="comfyStudio.runtimeIntel">Intel 显卡 / 核显</option>
+                    </select>
+                </label>
+                <div class="comfy-engine-status" id="comfyBuiltinStatus" data-state="idle">
+                    <span class="comfy-status-dot"></span>
+                    <span id="comfyBuiltinStatusText" data-i18n="comfyStudio.builtinChecking">正在检查内置引擎…</span>
+                </div>
+                <div class="comfy-progress" id="comfyBuiltinProgress" hidden>
+                    <div class="comfy-progress-track"><span id="comfyBuiltinProgressFill"></span></div>
+                    <div class="comfy-progress-line">
+                        <span id="comfyBuiltinProgressText"></span>
+                    </div>
+                </div>
+                <div class="comfy-engine-actions">
+                    <button class="comfy-btn primary" id="comfyInstallBuiltin" type="button">
+                        <i data-lucide="download"></i><span data-i18n="comfyStudio.installBuiltin">安装内置引擎</span>
+                    </button>
+                    <button class="comfy-btn secondary" id="comfyInstallBuiltinLatest" type="button" data-i18n="comfyStudio.installBuiltinLatest">下载最新版</button>
+                    <button class="comfy-btn secondary" id="comfyStartBuiltin" type="button">
+                        <i data-lucide="power"></i><span data-i18n="comfyStudio.startBuiltin">启动内置引擎</span>
+                    </button>
+                    <button class="comfy-btn secondary" id="comfyRollbackBuiltin" type="button" hidden data-i18n="comfyStudio.rollbackBuiltin">回滚上一版</button>
+                </div>
+            </section>
+            <section class="comfy-engine-card">
                 <div class="comfy-segmented" id="comfyEngineMode">
                     <button class="active" type="button" data-mode="local" data-i18n="comfyStudio.localEngine">本地引擎</button>
                     <button type="button" data-mode="remote" data-i18n="comfyStudio.remoteEngine">远程引擎</button>
