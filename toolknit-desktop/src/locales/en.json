@@ -1688,7 +1688,7 @@
         "openDownloadPage": "Open official download page",
         "builtinTutorialTitle": "Slow or failed? Manual install tutorial (recommended)",
         "builtinTutorialStep1": "1. Click \"Open official download page\" and pick the build for your GPU: for NVIDIA choose ComfyUI_windows_portable_nvidia.7z (~2GB). Download it anywhere with your browser or a download manager.",
-        "builtinTutorialStep2": "2. When finished, extract the archive to a folder with enough free space (~6GB extracted).",
+        "builtinTutorialStep2": "2. When finished, right-click the archive and choose \"Extract All\" (7-Zip official build recommended), into a folder with enough free space (~6GB extracted). You should see both ComfyUI and python_embeded sub-folders afterwards; if not, the extraction did not finish.",
         "builtinTutorialStep3": "3. Come back here and click \"Import extracted folder\", then select the extracted ComfyUI_windows_portable folder.",
         "startBuiltin": "Start built-in engine",
         "rollbackBuiltin": "Roll back",

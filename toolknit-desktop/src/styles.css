@@ -13558,6 +13558,21 @@
           gap: 18px;
       }
 
+      /* 内置引擎面板里的手动安装教程（单列普通排版） */
+      .comfy-builtin-tutorial-steps {
+          margin: 0 0 6px;
+          padding-left: 20px;
+          display: grid;
+          gap: 8px;
+          list-style: decimal;
+      }
+
+      .comfy-builtin-tutorial-steps li {
+          font-size: 12.5px;
+          line-height: 1.7;
+          color: var(--karui-ink);
+      }
+
       .comfy-builtin-detect {
           display: flex;
           align-items: center;

@@ -1668,7 +1668,8 @@ fn start_ai_runtime(port: Option<u16>, low_vram: Option<bool>) -> Result<AiRunti
         .filter(|path| !path.trim().is_empty())
         .map(std::path::PathBuf::from)
         .filter(|path| path.is_file())
-        .ok_or("内置运行时缺少可用的 Python")?;
+        // 便携包里没带 python_embeded 时，退回系统 Python
+        .unwrap_or_else(|| std::path::PathBuf::from("python"));
 
     let mut managed_child = COMFY_CHILD.lock().map_err(|_| "无法读取 ComfyUI 进程状态".to_string())?;
     if let Some(child) = managed_child.as_mut() {
