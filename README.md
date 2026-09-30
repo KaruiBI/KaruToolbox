@@ -35,6 +35,8 @@ npm run dev
 
 Karui 创作工程、专业视频时间线、AI Skill、参考图修图和用户记忆系统的后续开发规范，见 [开发知识库](toolknit-desktop/docs/README.md)。后续 AI 或开发者应先阅读接手指南，再从任务清单中选择单个任务实现。
 
+内置 ComfyUI 运行时、模型目录、人物设计、声音/字幕/口型对接与拖拽节点工作台的完整方案，见 [Karui 内置 AI 引擎与可视化节点工作台方案](KARUI-AI-NODE-STUDIO-PLAN.md)。
+
 ## 桌面端运行
 
 桌面端需要安装 Node.js 20+、Rust stable，并从同一份 FFmpeg 发行包中放入 `ffmpeg.exe` 与 `ffprobe.exe`：

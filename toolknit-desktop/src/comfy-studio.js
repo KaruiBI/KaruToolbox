@@ -257,6 +257,7 @@ function loadConfig() {
     const fallback = {
         mode: 'builtin',
         localPath: '',
+        legacyModelPath: '',
         pythonPath: '',
         serverUrl: 'http://127.0.0.1:8188',
         accessToken: '',
@@ -276,9 +277,11 @@ function normalizeBaseUrl(url) {
 
 function readConfigForm() {
     const activeModeButton = elements.engineMode && elements.engineMode.querySelector('button.active');
+    const existing = loadConfig();
     return {
         mode: activeModeButton ? activeModeButton.dataset.mode : 'local',
         localPath: elements.localPath ? elements.localPath.value.trim() : '',
+        legacyModelPath: existing.legacyModelPath || '',
         pythonPath: elements.pythonPath ? elements.pythonPath.value.trim() : '',
         serverUrl: normalizeBaseUrl(elements.serverUrl ? elements.serverUrl.value : 'http://127.0.0.1:8188'),
         accessToken: elements.accessToken ? elements.accessToken.value.trim() : '',
@@ -415,7 +418,9 @@ async function downloadModelInApp(button) {
   const url = button.dataset.comfyDownload || model?.url || '';
   const showInline = !!button.closest('#comfyH3Guide');
   const useBuiltin = builtinEnabled();
-  if (config.mode !== 'local' || (!config.localPath && !useBuiltin)) {
+  const canUseBuiltin = config.mode === 'builtin' && useBuiltin;
+  const canUseExternal = config.mode === 'local' && !!config.localPath;
+  if (!canUseBuiltin && !canUseExternal) {
     setModelDownloadStatus('error', filename, modelDownloadText(
       '请先安装内置引擎，或在“设置 → 本地引擎”中选择包含 main.py 的 ComfyUI 文件夹。',
       'Install the built-in engine first, or choose the ComfyUI folder containing main.py in Settings → Local Engine.',
@@ -470,6 +475,91 @@ async function downloadModelInApp(button) {
     modelDownloadActive = false;
     buttons.forEach(item => { item.disabled = false; });
     if (lastHardwareStatus) renderH3Recommendation(lastHardwareStatus);
+  }
+}
+
+async function importModelsInApp(button) {
+  if (!isTauri) return;
+  if (modelDownloadActive) return;
+  const config = loadConfig();
+  const useBuiltin = config.mode === 'builtin' && builtinEnabled();
+  const canUseExternal = config.mode === 'local' && !!config.localPath;
+  if (!useBuiltin && !canUseExternal) {
+    setModelDownloadStatus('error', '', modelDownloadText(
+      '请先安装内置引擎，或选择自己的 ComfyUI。',
+      'Install the built-in engine or select your own ComfyUI first.',
+    ));
+    return;
+  }
+  const folder = button.dataset.comfyImport;
+  const { open } = await import('@tauri-apps/plugin-dialog');
+  const selected = await open({
+    multiple: true,
+    title: modelDownloadText('选择要导入的模型文件', 'Choose model files to import'),
+    filters: [{ name: 'AI Models', extensions: ['safetensors', 'ckpt', 'pt', 'pth', 'bin', 'gguf'] }],
+  });
+  const sourcePaths = typeof selected === 'string' ? [selected] : selected;
+  if (!Array.isArray(sourcePaths) || !sourcePaths.length) return;
+
+  modelDownloadActive = true;
+  setModelDownloadStatus('working', '', modelDownloadText(
+    `正在复制 ${sourcePaths.length} 个模型，请不要关闭程序…`,
+    `Importing ${sourcePaths.length} model file(s). Keep the app open…`,
+  ));
+  try {
+    const imported = await tauriInvoke('import_comfy_models', {
+      comfyPath: useBuiltin ? null : config.localPath,
+      folder,
+      sourcePaths,
+    });
+    setModelDownloadStatus('success', '', modelDownloadText(
+      `已导入 ${imported.length} 个模型。正在运行的引擎请重启一次，然后点“重新检测”。`,
+      `Imported ${imported.length} model(s). Restart a running engine once, then refresh the model list.`,
+    ), 100);
+    if (elements.modelStatus) {
+      elements.modelStatus.textContent = modelDownloadText(
+        `已导入 ${imported.length} 个模型；重启引擎后即可使用`,
+        `Imported ${imported.length} model(s); restart the engine to use them`,
+      );
+    }
+    await refreshModelInventory().catch(() => {});
+    await renderVideoEngineEnvironment().catch(() => {});
+  } catch (error) {
+    setModelDownloadStatus('error', '', error?.message || String(error));
+  } finally {
+    modelDownloadActive = false;
+  }
+}
+
+async function linkPreviousModelLibrary() {
+  if (!isTauri) return;
+  if (!builtinEnabled()) {
+    setModelDownloadStatus('error', '', modelDownloadText('请先安装内置引擎。', 'Install the built-in engine first.'));
+    return;
+  }
+  const { open } = await import('@tauri-apps/plugin-dialog');
+  const selected = await open({
+    directory: true,
+    multiple: false,
+    title: modelDownloadText(
+      '选择以前的 ComfyUI 根目录，或它的 models 文件夹',
+      'Choose your previous ComfyUI folder or its models folder',
+    ),
+  });
+  if (typeof selected !== 'string') return;
+  const config = loadConfig();
+  config.legacyModelPath = selected;
+  localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
+  try {
+    const result = await tauriInvoke('configure_ai_model_paths', { legacyModelPath: selected });
+    const message = modelDownloadText(
+      `已关联以前的模型库：${result.legacyModelRoot}。重启内置引擎后会自动扫描，不会复制或删除原文件。`,
+      `Linked previous model library: ${result.legacyModelRoot}. Restart the built-in engine to scan it; files are not copied or deleted.`,
+    );
+    setModelDownloadStatus('success', '', message, 100);
+    if (elements.modelStatus) elements.modelStatus.textContent = message;
+  } catch (error) {
+    setModelDownloadStatus('error', '', error?.message || String(error));
   }
 }
 
@@ -962,9 +1052,9 @@ function setTutorialMode (mode) {
 
 // 引擎的模型根目录：内置引擎在统一目录 AI\data\models，本地引擎在其 ComfyUI\models
 function getEngineModelRoot () {
-  const builtinData = builtinRuntimeState?.paths?.data;
-  if (builtinData) return `${builtinData.replace(/[\\/]+$/, '')}\\models`;
   const config = loadConfig();
+  const builtinData = builtinRuntimeState?.paths?.data;
+  if (config.mode === 'builtin' && builtinData) return `${builtinData.replace(/[\\/]+$/, '')}\\models`;
   if (config.mode === 'local' && config.localPath) {
     return `${config.localPath.replace(/[\\/]+$/, '')}\\models`;
   }
@@ -973,10 +1063,10 @@ function getEngineModelRoot () {
 
 // 引擎的 ComfyUI 目录（custom_nodes 所在处）
 function getEngineComfyDir () {
-  if (builtinRuntimeState?.installed?.comfyDir) {
+  const config = loadConfig();
+  if (config.mode === 'builtin' && builtinRuntimeState?.installed?.comfyDir) {
     return builtinRuntimeState.installed.comfyDir.replace(/[\\/]+$/, '');
   }
-  const config = loadConfig();
   if (config.mode === 'local' && config.localPath) {
     return config.localPath.replace(/[\\/]+$/, '');
   }
@@ -1283,6 +1373,7 @@ async function refreshBuiltinRuntimeState () {
   if (!isTauri || !elements.builtinStatus) return null;
   try {
     const state = await tauriInvoke('get_ai_runtime_state');
+    builtinRuntimeState = state;
     const installed = state?.installed;
     const hasInstall = !!installed?.version;
     if (hasInstall) setBuiltinEnabled(true);
@@ -1319,6 +1410,7 @@ async function refreshBuiltinRuntimeState () {
     if (elements.rollbackBuiltin) elements.rollbackBuiltin.hidden = !installed?.previous;
     return state;
   } catch (error) {
+    builtinRuntimeState = null;
     setBuiltinStatus('error', error?.message || String(error));
     return null;
   }
@@ -1444,8 +1536,13 @@ async function startBuiltinRuntime () {
   try {
     let port = 8188;
     try { port = Number(new URL(config.serverUrl).port) || 8188; } catch (_) { port = 8188; }
+    const legacyModelPath = config.legacyModelPath || config.localPath || null;
     setBuiltinStatus('idle', builtinText('正在启动内置引擎…', 'Starting built-in engine…'));
-    const info = await tauriInvoke('start_ai_runtime', { port, lowVram: !!config.lowVram });
+    const info = await tauriInvoke('start_ai_runtime', {
+      port,
+      lowVram: !!config.lowVram,
+      legacyModelPath,
+    });
     if (elements.serverUrl) elements.serverUrl.value = info.baseUrl;
     engineConfig = saveConfig();
     setBuiltinEnabled(true);
@@ -1471,6 +1568,16 @@ async function startBuiltinRuntime () {
     setEngineStatus('error', error?.message || String(error));
   } finally {
     setBuiltinBusy(false);
+  }
+}
+
+async function restartConfiguredEngine () {
+  await stopLocalEngine();
+  const config = loadConfig();
+  if (config.mode === 'builtin') {
+    await startBuiltinRuntime();
+  } else {
+    await startLocalEngine(true);
   }
 }
 
@@ -2576,8 +2683,7 @@ async function installVideoHelper () {
     const processStatus = await tauriInvoke('comfy_process_status');
     if (processStatus?.running) {
       elements.videoInstallStatus.textContent = t('comfyStudio.videoRestarting');
-      await stopLocalEngine();
-      await startLocalEngine(true);
+      await restartConfiguredEngine();
       await loadCapabilities();
       elements.videoInstallStatus.dataset.state = videoEnvironment?.ready ? 'success' : 'error';
       elements.videoInstallStatus.textContent = videoEnvironment?.ready
@@ -2610,8 +2716,7 @@ async function installH3Nodes () {
     const processStatus = await tauriInvoke('comfy_process_status');
     if (processStatus?.running) {
       elements.h3InstallStatus.textContent = '正在重启 ComfyUI…';
-      await stopLocalEngine();
-      await startLocalEngine(true);
+      await restartConfiguredEngine();
       await loadCapabilities();
     }
     elements.h3InstallStatus.dataset.state = 'success';
@@ -2687,6 +2792,20 @@ document.querySelectorAll('[data-comfy-download]').forEach((button) => {
     }
     openDownloadUrl(button.dataset.comfyDownload).catch((error) => {
       console.error('Open ComfyUI download failed:', error);
+    });
+  });
+});
+document.querySelectorAll('[data-comfy-import]').forEach((button) => {
+  button.addEventListener('click', () => {
+    importModelsInApp(button).catch((error) => {
+      setModelDownloadStatus('error', '', error?.message || String(error));
+    });
+  });
+});
+document.querySelectorAll('[data-comfy-link-legacy]').forEach((button) => {
+  button.addEventListener('click', () => {
+    linkPreviousModelLibrary().catch((error) => {
+      setModelDownloadStatus('error', '', error?.message || String(error));
     });
   });
 });

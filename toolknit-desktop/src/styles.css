@@ -12674,6 +12674,7 @@
           align-items: center;
           justify-content: space-between;
           gap: 16px;
+          flex-wrap: wrap;
           background: rgba(38, 143, 218, 0.06);
           border: 1px solid rgba(38, 143, 218, 0.14);
           border-radius: 10px;
@@ -12686,6 +12687,7 @@
       }
       
       .comfy-model-pathbar>div {
+          flex: 1 1 100%;
           min-width: 0;
           display: grid;
           gap: 4px;
@@ -13021,6 +13023,20 @@
           grid-column: 1 / -1;
           background: linear-gradient(135deg, rgba(38, 143, 218, 0.08), rgba(54, 184, 200, 0.05));
           border-color: rgba(38, 143, 218, 0.2);
+      }
+
+      .comfy-tutorial-steps > .comfy-tutorial-advanced-li {
+          grid-column: 1 / -1;
+          display: block;
+      }
+
+      .comfy-tutorial-advanced-li > .comfy-advanced {
+          width: 100%;
+          margin: 0;
+      }
+
+      .comfy-tutorial-advanced-li .comfy-advanced-content > .comfy-tutorial-steps {
+          grid-template-columns: 1fr;
       }
       
       .comfy-tutorial-step-icon {

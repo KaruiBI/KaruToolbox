@@ -1338,6 +1338,7 @@ async fn install_ai_runtime(
             "license": runtime.get("license"),
             "previous": null,
         });
+        write_extra_model_paths(&paths, &comfy_dir, None)?;
         write_runtime_manifest(&paths, &manifest)?;
         return Ok(manifest);
     }
@@ -1497,7 +1498,7 @@ async fn install_ai_runtime(
     }
     std::fs::rename(&staging, &target_dir).map_err(|e| format!("无法启用新运行时: {}", e))?;
     let _ = std::fs::remove_dir_all(&staging);
-    write_extra_model_paths(&paths, &target_dir.join(layout_comfy))?;
+    write_extra_model_paths(&paths, &target_dir.join(layout_comfy), None)?;
 
     let manifest = serde_json::json!({
         "runtimeId": runtime_id,
@@ -1535,17 +1536,75 @@ async fn install_ai_runtime(
 
 /// 让内置 ComfyUI 读取统一模型目录：在便携包内写入 extra_model_paths.yaml。
 /// custom_nodes 暂随运行时目录，后续阶段再迁到 AI/data。
-fn write_extra_model_paths(paths: &AiPaths, comfy_dir: &std::path::Path) -> Result<(), String> {
+fn normalize_legacy_models_root(raw_path: Option<&str>) -> Result<Option<std::path::PathBuf>, String> {
+    let Some(raw_path) = raw_path.map(str::trim).filter(|path| !path.is_empty()) else {
+        return Ok(None);
+    };
+    let selected = std::path::PathBuf::from(raw_path);
+    if !selected.is_dir() {
+        return Err("以前的模型目录不存在，请重新选择".to_string());
+    }
+    let models = if selected.join("models").is_dir() {
+        selected.join("models")
+    } else if selected.join("checkpoints").is_dir()
+        || selected.join("diffusion_models").is_dir()
+        || selected.join("text_encoders").is_dir()
+        || selected.file_name().and_then(|value| value.to_str()).is_some_and(|value| value.eq_ignore_ascii_case("models"))
+    {
+        selected
+    } else {
+        return Err("请选择以前 ComfyUI 的根目录，或直接选择它的 models 文件夹".to_string());
+    };
+    models
+        .canonicalize()
+        .map(Some)
+        .map_err(|e| format!("无法读取以前的模型目录: {}", e))
+}
+
+fn yaml_path(path: &std::path::Path) -> String {
+    path.to_string_lossy().replace('\\', "/").replace('"', "\\\"")
+}
+
+fn write_extra_model_paths(
+    paths: &AiPaths,
+    comfy_dir: &std::path::Path,
+    legacy_models_root: Option<&std::path::Path>,
+) -> Result<(), String> {
     if !comfy_dir.is_dir() {
         return Ok(());
     }
-    let base = std::path::PathBuf::from(&paths.data).to_string_lossy().replace('\'', "");
-    let content = format!(
-        "karui_unified:\n    base_path: '{}'\n    checkpoints: models/checkpoints\n    diffusion_models: models/diffusion_models\n    text_encoders: models/text_encoders\n    clip_vision: models/clip_vision\n    vae: models/vae\n    loras: models/loras\n    controlnet: models/controlnet\n    clip_projections: models/clip_projections\n",
+    let base = yaml_path(&std::path::PathBuf::from(&paths.data));
+    let mut content = format!(
+        "karui_unified:\n    base_path: \"{}\"\n    is_default: true\n    checkpoints: models/checkpoints\n    diffusion_models: models/diffusion_models\n    text_encoders: models/text_encoders\n    clip_vision: models/clip_vision\n    vae: models/vae\n    loras: models/loras\n    controlnet: models/controlnet\n    clip_projections: models/clip_projections\n",
         base
     );
+    if let Some(legacy_root) = legacy_models_root {
+        content.push_str(&format!(
+            "\nkarui_previous_models:\n    base_path: \"{}\"\n    checkpoints: checkpoints\n    diffusion_models: diffusion_models\n    text_encoders: |\n        text_encoders\n        clip\n    clip_vision: clip_vision\n    vae: vae\n    loras: loras\n    controlnet: controlnet\n    clip_projections: clip_projections\n",
+            yaml_path(legacy_root)
+        ));
+    }
     std::fs::write(comfy_dir.join("extra_model_paths.yaml"), content)
         .map_err(|e| format!("无法写入模型路径配置: {}", e))
+}
+
+#[tauri::command]
+fn configure_ai_model_paths(legacy_model_path: Option<String>) -> Result<serde_json::Value, String> {
+    let paths = ensure_ai_dirs()?;
+    let manifest = read_runtime_manifest(&paths).ok_or("请先安装内置引擎")?;
+    let comfy_dir = std::path::PathBuf::from(
+        manifest.get("comfyDir").and_then(|value| value.as_str()).ok_or("运行时清单缺少目录")?,
+    );
+    if !comfy_dir.join("main.py").is_file() {
+        return Err("内置引擎目录已损坏，请重新安装".to_string());
+    }
+    let legacy_root = normalize_legacy_models_root(legacy_model_path.as_deref())?;
+    write_extra_model_paths(&paths, &comfy_dir, legacy_root.as_deref())?;
+    Ok(serde_json::json!({
+        "modelRoot": std::path::PathBuf::from(&paths.data).join("models").to_string_lossy(),
+        "legacyModelRoot": legacy_root.map(|path| path.to_string_lossy().to_string()),
+        "configPath": comfy_dir.join("extra_model_paths.yaml").to_string_lossy(),
+    }))
 }
 
 #[allow(dead_code)]
@@ -1671,7 +1730,11 @@ struct AiRuntimeStartInfo {
 /// 启动内置运行时：使用统一模型目录（extra_model_paths.yaml）与统一输出目录。
 /// 与 start_comfy_local 的区别是后者面向用户自己那份外部 ComfyUI。
 #[tauri::command]
-fn start_ai_runtime(port: Option<u16>, low_vram: Option<bool>) -> Result<AiRuntimeStartInfo, String> {
+fn start_ai_runtime(
+    port: Option<u16>,
+    low_vram: Option<bool>,
+    legacy_model_path: Option<String>,
+) -> Result<AiRuntimeStartInfo, String> {
     let paths = ensure_ai_dirs()?;
     let manifest = read_runtime_manifest(&paths).ok_or("尚未安装内置运行时")?;
     let comfy_dir = std::path::PathBuf::from(
@@ -1683,6 +1746,11 @@ fn start_ai_runtime(port: Option<u16>, low_vram: Option<bool>) -> Result<AiRunti
     if !comfy_dir.join("main.py").is_file() {
         return Err("内置运行时已损坏，请重新安装".to_string());
     }
+    // 启动不能被已经移动/删除的旧模型目录阻断；显式“关联模型库”仍会返回准确错误。
+    let legacy_models_root = normalize_legacy_models_root(legacy_model_path.as_deref())
+        .ok()
+        .flatten();
+    write_extra_model_paths(&paths, &comfy_dir, legacy_models_root.as_deref())?;
     let python_exe = manifest
         .get("pythonExe")
         .and_then(|v| v.as_str())
@@ -1834,6 +1902,67 @@ fn resolve_model_target_dir(comfy_path: Option<&str>, folder_key: &str) -> Resul
             }
         }
     }
+}
+
+#[tauri::command]
+async fn import_comfy_models(
+    comfy_path: Option<String>,
+    folder: String,
+    source_paths: Vec<String>,
+) -> Result<Vec<String>, String> {
+    if source_paths.is_empty() {
+        return Err("请选择要导入的模型文件".to_string());
+    }
+    if source_paths.len() > 32 {
+        return Err("一次最多导入 32 个模型文件".to_string());
+    }
+    let target_folder = model_folder_name(&folder)?;
+    let target_dir = resolve_model_target_dir(comfy_path.as_deref(), target_folder)?;
+    std::fs::create_dir_all(&target_dir).map_err(|e| format!("无法创建模型目录: {}", e))?;
+
+    tokio::task::spawn_blocking(move || {
+        let allowed = ["safetensors", "ckpt", "pt", "pth", "bin", "gguf"];
+        let canonical_target = target_dir.canonicalize().map_err(|e| format!("无法读取模型目录: {}", e))?;
+        let mut imported = Vec::with_capacity(source_paths.len());
+        for source in source_paths {
+            let source_path = std::path::PathBuf::from(source.trim());
+            if !source_path.is_absolute() || !source_path.is_file() {
+                return Err(format!("模型文件不存在: {}", source_path.display()));
+            }
+            let extension = source_path
+                .extension()
+                .and_then(|value| value.to_str())
+                .map(|value| value.to_ascii_lowercase())
+                .ok_or("模型文件缺少扩展名")?;
+            if !allowed.contains(&extension.as_str()) {
+                return Err(format!("不支持的模型格式: .{}", extension));
+            }
+            let filename = source_path.file_name().ok_or("模型文件名无效")?;
+            let target = canonical_target.join(filename);
+            let canonical_source = source_path
+                .canonicalize()
+                .map_err(|e| format!("无法读取模型文件: {}", e))?;
+            if canonical_source == target {
+                imported.push(target.to_string_lossy().to_string());
+                continue;
+            }
+            if target.exists() {
+                let source_size = std::fs::metadata(&canonical_source).map(|value| value.len()).unwrap_or(0);
+                let target_size = std::fs::metadata(&target).map(|value| value.len()).unwrap_or(1);
+                if source_size == target_size {
+                    imported.push(target.to_string_lossy().to_string());
+                    continue;
+                }
+                return Err(format!("目标目录已有同名但大小不同的文件: {}", target.display()));
+            }
+            std::fs::copy(&canonical_source, &target)
+                .map_err(|e| format!("导入 {} 失败: {}", canonical_source.display(), e))?;
+            imported.push(target.to_string_lossy().to_string());
+        }
+        Ok(imported)
+    })
+    .await
+    .map_err(|e| format!("模型导入任务异常: {}", e))?
 }
 
 fn validate_model_download(url: &str, filename: &str, folder: &str) -> Result<(url::Url, &'static str), String> {
@@ -3859,7 +3988,7 @@ pub fn run() {
     open_url, get_documents_dir, get_download_dir, get_install_lang, get_install_config, set_storage_path,
       get_ai_paths, list_ai_runtime_catalog, get_ai_runtime_state, set_ai_runtime_installed,
       install_ai_runtime, cancel_ai_runtime_install, rollback_ai_runtime, start_ai_runtime,
-      find_bundled_ai_runtime, clear_ai_runtime_cache,
+      find_bundled_ai_runtime, clear_ai_runtime_cache, configure_ai_model_paths,
       get_system_status,
       convert_audio_batch, cancel_convert, open_path, reveal_in_folder,
       read_file_bytes, write_file_bytes, write_file_chunk, exists_path, get_file_size,
@@ -3869,7 +3998,7 @@ pub fn run() {
       compress_image_batch,
       convert_video_batch,
     comfy_http_json, comfy_upload_image, comfy_download_output, install_comfy_video_helper, install_comfy_h3_nodes,
-      download_comfy_model, cancel_comfy_model_download,
+      download_comfy_model, cancel_comfy_model_download, import_comfy_models,
       start_comfy_local, stop_comfy_local, comfy_process_status,
       quit_application,
       set_tray_lang,
