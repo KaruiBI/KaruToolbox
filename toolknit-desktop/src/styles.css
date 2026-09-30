@@ -13530,8 +13530,8 @@
       }
       
       .comfy-engine-card {
-          width: min(620px, 100%);
-          margin: 0 auto;
+          width: min(820px, 100%);
+          margin: 0 auto 22px;
           padding: 28px 30px;
           background: rgba(255, 255, 255, 0.9);
           border: 1px solid var(--karui-line);
@@ -13542,7 +13542,7 @@
       .comfy-hardware-card {
           width: min(820px, 100%);
           margin: 0 auto 22px;
-          padding: 24px;
+          padding: 20px 22px;
           box-sizing: border-box;
           color: var(--karui-ink);
           background: rgba(255, 255, 255, 0.88);
@@ -13556,6 +13556,21 @@
           align-items: flex-start;
           justify-content: space-between;
           gap: 18px;
+      }
+
+      .comfy-hardware-head-actions {
+          display: flex;
+          align-items: center;
+          flex: 0 0 auto;
+          gap: 8px;
+      }
+
+      .comfy-hardware-summary {
+          margin: 12px 0 0;
+          color: var(--karui-ink);
+          font-size: 12px;
+          font-weight: 600;
+          line-height: 1.6;
       }
 
       .comfy-hardware-head h3 {
@@ -13615,7 +13630,16 @@
           white-space: nowrap;
       }
 
-      .comfy-hardware-grid strong { font-size: 14px; }
+      .comfy-hardware-grid strong {
+          font-size: 13px;
+          line-height: 1.35;
+          white-space: normal;
+          display: -webkit-box;
+          overflow-wrap: anywhere;
+          -webkit-box-orient: vertical;
+          -webkit-line-clamp: 2;
+      }
+
       .comfy-hardware-grid small { color: var(--karui-muted); font-size: 11px; }
 
       .comfy-hardware-advice { margin-top: 18px; }

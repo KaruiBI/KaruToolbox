@@ -1680,7 +1680,7 @@
         "runtimeIntel": "Intel / integrated graphics",
         "builtinChecking": "Checking built-in engine…",
         "installBuiltin": "Install built-in engine",
-        "installBuiltinLatest": "Download latest",
+        "installBuiltinLatest": "Download latest (online)",
         "startBuiltin": "Start built-in engine",
         "rollbackBuiltin": "Roll back",
         "localEngine": "Local Engine",

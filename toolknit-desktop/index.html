@@ -4627,32 +4627,6 @@
                     <p data-i18n="comfyStudio.engineLead">Karui 提供图片与视频工作流创作体验。</p>
                 </div>
             </div>
-            <section class="comfy-hardware-card" id="comfyHardwareCard">
-                <div class="comfy-hardware-head">
-                    <div>
-                        <span class="comfy-kicker">SYSTEM ADVISOR</span>
-                        <h3 data-i18n="comfyStudio.hardwareTitle">系统能力检测</h3>
-                        <p data-i18n="comfyStudio.hardwareLead">检测 CPU、内存、显卡和显存，给出本地模型运行建议。</p>
-                    </div>
-                    <button class="comfy-header-btn" id="comfyRefreshHardware" type="button">
-                        <i data-lucide="refresh-cw"></i><span data-i18n="comfyStudio.refreshHardware">重新检测</span>
-                    </button>
-                </div>
-                <div class="comfy-hardware-state" id="comfyHardwareState" data-state="loading">
-                    <span class="comfy-status-dot"></span><span data-i18n="comfyStudio.hardwareDetecting">正在读取电脑配置…</span>
-                </div>
-                <div class="comfy-hardware-grid" id="comfyHardwareGrid">
-                    <article><span>CPU</span><strong id="comfyHardwareCpu">--</strong><small id="comfyHardwareCpuMeta">--</small></article>
-                    <article><span data-i18n="comfyStudio.memory">内存</span><strong id="comfyHardwareMemory">--</strong><small id="comfyHardwareMemoryMeta">--</small></article>
-                    <article><span>GPU</span><strong id="comfyHardwareGpu">--</strong><small id="comfyHardwareGpuMeta">--</small></article>
-                    <article><span data-i18n="comfyStudio.vram">显存</span><strong id="comfyHardwareVram">--</strong><small id="comfyHardwareVramMeta">--</small></article>
-                </div>
-                <div class="comfy-hardware-advice">
-                    <h4 data-i18n="comfyStudio.modelAdvice">本机模型建议</h4>
-                    <div class="comfy-advice-list" id="comfyHardwareAdvice"></div>
-                </div>
-                <p class="comfy-hardware-note" data-i18n="comfyStudio.hardwareDisclaimer">建议为保守估算，实际占用会随模型精度、节点、分辨率和批次数变化；运行时请以实时显存为准。</p>
-            </section>
             <section class="comfy-engine-card">
                 <div class="comfy-hardware-head">
                     <div>
@@ -4682,15 +4656,47 @@
                 </div>
                 <div class="comfy-engine-actions">
                     <button class="comfy-btn primary" id="comfyInstallBuiltin" type="button">
-                        <i data-lucide="download"></i><span data-i18n="comfyStudio.installBuiltin">安装内置引擎</span>
+                        <i data-lucide="download"></i><span data-i18n="comfyStudio.installBuiltin">一键安装内置引擎</span>
                     </button>
-                    <button class="comfy-btn secondary" id="comfyInstallBuiltinLatest" type="button" data-i18n="comfyStudio.installBuiltinLatest">下载最新版</button>
+                    <button class="comfy-btn secondary" id="comfyInstallBuiltinLatest" type="button" data-i18n="comfyStudio.installBuiltinLatest">下载最新版（联网）</button>
                     <button class="comfy-btn secondary" id="comfyStartBuiltin" type="button">
                         <i data-lucide="power"></i><span data-i18n="comfyStudio.startBuiltin">启动内置引擎</span>
                     </button>
                     <button class="comfy-btn secondary" id="comfyRollbackBuiltin" type="button" hidden data-i18n="comfyStudio.rollbackBuiltin">回滚上一版</button>
                 </div>
             </section>
+<section class="comfy-hardware-card" id="comfyHardwareCard">
+                <div class="comfy-hardware-head">
+                    <div>
+                        <span class="comfy-kicker">SYSTEM ADVISOR</span>
+                        <h3 data-i18n="comfyStudio.hardwareTitle">系统能力检测</h3>
+                        <p data-i18n="comfyStudio.hardwareLead">检测 CPU、内存、显卡和显存，给出本地模型运行建议。</p>
+                    </div>
+                    <div class="comfy-hardware-head-actions">
+                        <button class="comfy-header-btn" id="comfyToggleHardware" type="button">查看详情</button>
+                        <button class="comfy-header-btn" id="comfyRefreshHardware" type="button">
+                            <i data-lucide="refresh-cw"></i><span data-i18n="comfyStudio.refreshHardware">重新检测</span>
+                        </button>
+                    </div>
+                </div>
+                <p class="comfy-hardware-summary" id="comfyHardwareSummary" hidden></p>
+                <div class="comfy-hardware-body" id="comfyHardwareBody" hidden>
+                <div class="comfy-hardware-state" id="comfyHardwareState" data-state="loading">
+                    <span class="comfy-status-dot"></span><span data-i18n="comfyStudio.hardwareDetecting">正在读取电脑配置…</span>
+                </div>
+                <div class="comfy-hardware-grid" id="comfyHardwareGrid">
+                    <article><span>CPU</span><strong id="comfyHardwareCpu">--</strong><small id="comfyHardwareCpuMeta">--</small></article>
+                    <article><span data-i18n="comfyStudio.memory">内存</span><strong id="comfyHardwareMemory">--</strong><small id="comfyHardwareMemoryMeta">--</small></article>
+                    <article><span>GPU</span><strong id="comfyHardwareGpu">--</strong><small id="comfyHardwareGpuMeta">--</small></article>
+                    <article><span data-i18n="comfyStudio.vram">显存</span><strong id="comfyHardwareVram">--</strong><small id="comfyHardwareVramMeta">--</small></article>
+                </div>
+                <div class="comfy-hardware-advice">
+                    <h4 data-i18n="comfyStudio.modelAdvice">本机模型建议</h4>
+                    <div class="comfy-advice-list" id="comfyHardwareAdvice"></div>
+                </div>
+                <p class="comfy-hardware-note" data-i18n="comfyStudio.hardwareDisclaimer">建议为保守估算，实际占用会随模型精度、节点、分辨率和批次数变化；运行时请以实时显存为准。</p>
+                            </div>
+</section>
             <section class="comfy-engine-card">
                 <div class="comfy-segmented" id="comfyEngineMode">
                     <button class="active" type="button" data-mode="local" data-i18n="comfyStudio.localEngine">本地引擎</button>

@@ -69,6 +69,9 @@ const elements = {
     testEngine: document.getElementById('comfyTestEngine'),
     saveEngine: document.getElementById('comfySaveEngine'),
     refreshHardware: document.getElementById('comfyRefreshHardware'),
+    toggleHardware: document.getElementById('comfyToggleHardware'),
+    hardwareBody: document.getElementById('comfyHardwareBody'),
+    hardwareSummary: document.getElementById('comfyHardwareSummary'),
     hardwareState: document.getElementById('comfyHardwareState'),
     hardwareCpu: document.getElementById('comfyHardwareCpu'),
     hardwareCpuMeta: document.getElementById('comfyHardwareCpuMeta'),
@@ -237,6 +240,7 @@ let hardwareRequestPending = false;
 let lastHardwareStatus = null;
 let modelDownloadActive = false;
 let builtinInstallActive = false;
+let builtinRuntimeTouched = false;
 
 function loadConfig() {
     const fallback = {
@@ -765,7 +769,57 @@ function renderHardwareStatus (status) {
     : '--';
   renderHardwareAdvice(status);
   renderH3Recommendation(status);
+  renderHardwareSummary(status);
+  syncBuiltinRuntimeFromHardware(status);
   setHardwareState('ready', t('comfyStudio.hardwareReady'));
+}
+
+// 按检测到的显卡自动预选内置引擎包，用户手动改过就不再覆盖
+function syncBuiltinRuntimeFromHardware (status) {
+  if (!elements.builtinRuntime || builtinRuntimeTouched) return;
+  const gpu = primaryGpu(status);
+  const label = `${gpu?.vendor || ''} ${gpu?.name || ''}`.toLowerCase();
+  let value = '';
+  if (/nvidia|geforce|\brtx\b|\bgtx\b|quadro|tesla/.test(label)) value = 'comfyui-windows-nvidia';
+  else if (/amd|radeon/.test(label)) value = 'comfyui-windows-amd';
+  else if (/intel|\barc\b|iris|uhd graphics/.test(label)) value = 'comfyui-windows-intel';
+  if (value) elements.builtinRuntime.value = value;
+}
+
+function renderHardwareSummary (status) {
+  if (!elements.hardwareSummary) return;
+  const gpu = primaryGpu(status);
+  const cpuName = shortHardwareName(status?.cpu?.name);
+  const memoryText = formatBytes(status?.memory?.totalBytes);
+  const gpuName = gpu ? shortHardwareName(gpu.name) : '';
+  const vramText = gpu?.dedicatedMemoryBytes ? formatBytes(gpu.dedicatedMemoryBytes) : '';
+  const parts = [];
+  if (cpuName) parts.push(cpuName);
+  if (memoryText && memoryText !== '0 B') parts.push(builtinText(`${memoryText} 内存`, `${memoryText} RAM`));
+  if (gpuName) parts.push(vramText ? `${gpuName} · ${vramText}${builtinText(' 显存', ' VRAM')}` : gpuName);
+  else parts.push(t('comfyStudio.noGpuDetected'));
+  elements.hardwareSummary.textContent = parts.join(' · ');
+  elements.hardwareSummary.hidden = false;
+}
+
+// 硬件名称过长时去掉厂商后缀，便于在摘要行完整显示
+function shortHardwareName (name) {
+  if (!name) return '';
+  return String(name)
+    .replace(/\s*\((R|TM|C)\)/gi, '')
+    .replace(/\s*(CPU|GPU)\b/gi, '')
+    .replace(/\s*@\s*[\d.]+\s*GHz/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+function setHardwareDetailsOpen (open) {
+  if (!elements.hardwareBody || !elements.toggleHardware) return;
+  elements.hardwareBody.hidden = !open;
+  elements.toggleHardware.textContent = open
+    ? builtinText('收起', 'Hide')
+    : builtinText('查看详情', 'Details');
+  elements.toggleHardware.setAttribute('aria-expanded', open ? 'true' : 'false');
 }
 
 async function refreshHardwareStatus () {
@@ -2451,6 +2505,9 @@ elements.engineMode?.addEventListener('click', (event) => {
 });
 elements.browsePath?.addEventListener('click', () => browseComfyPath().catch((error) => setEngineStatus('error', error.message || String(error))));
 elements.refreshHardware?.addEventListener('click', refreshHardwareStatus);
+elements.toggleHardware?.addEventListener('click', () => {
+  setHardwareDetailsOpen(!!elements.hardwareBody?.hidden);
+});
 elements.saveEngine?.addEventListener('click', () => {
   saveConfig();
   setEngineStatus('online', t('comfyStudio.saved'));
@@ -2471,6 +2528,7 @@ elements.stopEngine?.addEventListener('click', async () => {
   try { await stopLocalEngine(); }
   catch (error) { setEngineStatus('error', error.message || String(error)); }
 });
+elements.builtinRuntime?.addEventListener('change', () => { builtinRuntimeTouched = true; });
 elements.installBuiltin?.addEventListener('click', () => installBuiltinRuntime('offline'));
 elements.installBuiltinLatest?.addEventListener('click', () => installBuiltinRuntime('online'));
 elements.startBuiltin?.addEventListener('click', () => startBuiltinRuntime());
@@ -2585,12 +2643,14 @@ window.shutdownKaruiAiConnections = async function shutdownKaruiAiConnections ()
 onLangChange(() => {
   if (elements.connectionPill.dataset.state !== 'online') setConnectionStatus('offline', t('comfyStudio.offline'));
   if (lastHardwareStatus) renderHardwareStatus(lastHardwareStatus);
+  setHardwareDetailsOpen(!!(elements.hardwareBody && !elements.hardwareBody.hidden));
   renderVideoEngineEnvironment();
   buildPromptLab();
   setWorkflowView(workflowView);
 });
 
 writeConfigForm();
+setHardwareDetailsOpen(false);
 syncModelAccess();
 loadPromptDraft();
 renderVideoEngineEnvironment();
