@@ -747,11 +747,14 @@ async fn probe_runtime_source(source: &RuntimeSource) -> Result<(u64, bool, f64)
 
 /// 下载一个分片；源轮转使用，任何源成功即返回
 async fn download_runtime_part(
+    index: usize,
     sources: Vec<RuntimeSource>,
     target: std::path::PathBuf,
     start: u64,
     end: u64,
+    written_before: u64,
     progress: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    state: std::sync::Arc<std::sync::Mutex<Vec<u64>>>,
 ) -> Result<(), String> {
     use std::io::{Seek, SeekFrom, Write};
     let expected = end - start + 1;
@@ -760,6 +763,10 @@ async fn download_runtime_part(
     for source in &sources {
         if AI_RUNTIME_CANCEL.load(Ordering::SeqCst) {
             return Err("已取消运行时下载".to_string());
+        }
+        let resume_at = start + written_before;
+        if resume_at > end {
+            return Ok(());
         }
         let client = match build_download_client(source.proxy.as_deref()) {
             Ok(value) => value,
@@ -770,7 +777,7 @@ async fn download_runtime_part(
         };
         let mut response = match client
             .get(&source.url)
-            .header(reqwest::header::RANGE, format!("bytes={}-{}", start, end))
+            .header(reqwest::header::RANGE, format!("bytes={}-{}", resume_at, end))
             .send()
             .await
         {
@@ -788,23 +795,34 @@ async fn download_runtime_part(
             .write(true)
             .open(&target)
             .map_err(|error| format!("无法写入下载文件: {}", error))?;
-        file.seek(SeekFrom::Start(start))
+        file.seek(SeekFrom::Start(resume_at))
             .map_err(|error| format!("无法定位写入位置: {}", error))?;
 
         let mut written = 0u64;
+        let mut since_state_update = 0u64;
         let mut failed = false;
         loop {
             match response.chunk().await {
                 Ok(Some(chunk)) => {
                     if AI_RUNTIME_CANCEL.load(Ordering::SeqCst) {
+                        if let Ok(mut guard) = state.lock() {
+                            guard[index] = written_before + written;
+                        }
                         return Err("已取消运行时下载".to_string());
                     }
                     if let Err(error) = file.write_all(&chunk) {
                         return Err(format!("写入失败: {}", error));
                     }
                     written += chunk.len() as u64;
+                    since_state_update += chunk.len() as u64;
                     progress.fetch_add(chunk.len() as u64, Ordering::SeqCst);
-                    if written >= expected {
+                    if since_state_update >= 4 * 1024 * 1024 {
+                        since_state_update = 0;
+                        if let Ok(mut guard) = state.lock() {
+                            guard[index] = written_before + written;
+                        }
+                    }
+                    if written_before + written >= expected {
                         break;
                     }
                 }
@@ -817,11 +835,85 @@ async fn download_runtime_part(
             }
         }
         drop(file);
-        if !failed && written >= expected {
+        if let Ok(mut guard) = state.lock() {
+            guard[index] = written_before + written;
+        }
+        if !failed && written_before + written >= expected {
             return Ok(());
         }
     }
     Err(format!("分片下载失败：{}", last_error))
+}
+
+fn human_bytes(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+    let mut value = bytes as f64;
+    let mut unit_index = 0usize;
+    while value >= 1024.0 && unit_index < UNITS.len() - 1 {
+        value /= 1024.0;
+        unit_index += 1;
+    }
+    if unit_index == 0 {
+        format!("{} {}", bytes, UNITS[unit_index])
+    } else {
+        format!("{:.1} {}", value, UNITS[unit_index])
+    }
+}
+
+/// 分片进度记录，用于断点续传
+fn runtime_state_path(target: &std::path::Path) -> std::path::PathBuf {
+    std::path::PathBuf::from(format!("{}.state.json", target.to_string_lossy()))
+}
+
+fn load_runtime_state(target: &std::path::Path, url: &str, size: u64, parts: usize) -> Vec<u64> {
+    let path = runtime_state_path(target);
+    let Ok(content) = std::fs::read_to_string(&path) else {
+        return vec![0u64; parts];
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) else {
+        return vec![0u64; parts];
+    };
+    // 下载地址或文件大小变了，说明不是同一个文件，不能接着下
+    if value.get("url").and_then(|v| v.as_str()) != Some(url)
+        || value.get("size").and_then(|v| v.as_u64()) != Some(size)
+    {
+        return vec![0u64; parts];
+    }
+    let Some(list) = value.get("parts").and_then(|v| v.as_array()) else {
+        return vec![0u64; parts];
+    };
+    if list.len() != parts {
+        return vec![0u64; parts];
+    }
+    list.iter()
+        .map(|item| item.get("written").and_then(|v| v.as_u64()).unwrap_or(0))
+        .collect()
+}
+
+fn save_runtime_state(
+    target: &std::path::Path,
+    url: &str,
+    size: u64,
+    ranges: &[(u64, u64)],
+    written: &[u64],
+) {
+    let payload = serde_json::json!({
+        "url": url,
+        "size": size,
+        "updatedAt": chrono_like_now(),
+        "parts": ranges
+            .iter()
+            .enumerate()
+            .map(|(index, range)| serde_json::json!({
+                "start": range.0,
+                "end": range.1,
+                "written": written.get(index).copied().unwrap_or(0),
+            }))
+            .collect::<Vec<_>>(),
+    });
+    if let Ok(content) = serde_json::to_string_pretty(&payload) {
+        let _ = std::fs::write(runtime_state_path(target), content);
+    }
 }
 
 async fn download_runtime_archive(
@@ -897,7 +989,43 @@ async fn download_runtime_archive(
         file.set_len(total).map_err(|e| format!("无法预分配下载文件: {}", e))?;
     }
 
-    let progress = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let parts = if supports_range && total >= RUNTIME_PARALLEL_MIN_BYTES {
+        RUNTIME_DOWNLOAD_PARTS
+    } else {
+        1
+    };
+    let ranges: Vec<(u64, u64)> = if parts == 1 {
+        vec![(0u64, total - 1)]
+    } else {
+        let chunk = total / parts as u64;
+        (0..parts)
+            .map(|index| {
+                let start = chunk * index as u64;
+                let end = if index + 1 == parts {
+                    total - 1
+                } else {
+                    chunk * (index + 1) as u64 - 1
+                };
+                (start, end)
+            })
+            .collect()
+    };
+
+    // 断点续传：读取上次每个分片已下载的字节数
+    let written = load_runtime_state(target, url, total, ranges.len());
+    let restored: u64 = written.iter().sum();
+    let state = std::sync::Arc::new(std::sync::Mutex::new(written.clone()));
+    let progress = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(restored));
+    if restored > 0 {
+        emit_runtime_progress(app, AiRuntimeProgress {
+            runtime_id: runtime_id.to_string(),
+            phase: "downloading".to_string(),
+            downloaded_bytes: restored,
+            total_bytes: total,
+            message: format!("继续上次下载（已保留 {}）", human_bytes(restored)),
+        });
+    }
+
     let done_flag = std::sync::Arc::new(AtomicBool::new(false));
     let reporter = {
         let app = app.clone();
@@ -919,43 +1047,28 @@ async fn download_runtime_archive(
         })
     };
 
-    let parts = if supports_range && total >= RUNTIME_PARALLEL_MIN_BYTES {
-        RUNTIME_DOWNLOAD_PARTS
-    } else {
-        1
-    };
     let mut join_set: tokio::task::JoinSet<Result<(), String>> = tokio::task::JoinSet::new();
-    if parts == 1 {
-        join_set.spawn(download_runtime_part(
-            ordered.clone(),
-            target.to_path_buf(),
-            0,
-            total - 1,
-            std::sync::Arc::clone(&progress),
-        ));
-    } else {
-        let chunk = total / parts as u64;
-        for index in 0..parts {
-            let start = chunk * index as u64;
-            let end = if index + 1 == parts {
-                total - 1
-            } else {
-                chunk * (index + 1) as u64 - 1
-            };
-            // 每个分片轮转起始源，避免所有分片都挤在最慢的源上
-            let mut rotated = ordered.clone();
-            let source_count = rotated.len();
-            if source_count > 0 {
-                rotated.rotate_left(index % source_count);
-            }
-            join_set.spawn(download_runtime_part(
-                rotated,
-                target.to_path_buf(),
-                start,
-                end,
-                std::sync::Arc::clone(&progress),
-            ));
+    for (index, range) in ranges.iter().enumerate() {
+        let expected = range.1 - range.0 + 1;
+        if written[index] >= expected {
+            continue; // 这个分片上次已经下完
         }
+        // 每个分片轮转起始源，避免所有分片都挤在最慢的源上
+        let mut rotated = ordered.clone();
+        let source_count = rotated.len();
+        if source_count > 0 {
+            rotated.rotate_left(index % source_count);
+        }
+        join_set.spawn(download_runtime_part(
+            index,
+            rotated,
+            target.to_path_buf(),
+            range.0,
+            range.1,
+            written[index],
+            std::sync::Arc::clone(&progress),
+            std::sync::Arc::clone(&state),
+        ));
     }
 
     let mut failure: Option<String> = None;
@@ -977,14 +1090,25 @@ async fn download_runtime_archive(
     done_flag.store(true, Ordering::SeqCst);
     reporter.abort();
 
+    let final_written = state
+        .lock()
+        .map(|guard| guard.clone())
+        .unwrap_or_else(|_| written.clone());
+    let saved_bytes: u64 = final_written.iter().sum();
+
+    // 取消或失败时保留已下载内容并记下进度，下次接着下
     if let Some(message) = failure {
-        let _ = std::fs::remove_file(target);
+        save_runtime_state(target, url, total, &ranges, &final_written);
+        if AI_RUNTIME_CANCEL.load(Ordering::SeqCst) {
+            return Err(format!("已取消下载，已保留 {}，下次会自动继续", human_bytes(saved_bytes)));
+        }
         return Err(message);
     }
     if AI_RUNTIME_CANCEL.load(Ordering::SeqCst) {
-        let _ = std::fs::remove_file(target);
-        return Err("已取消运行时下载".to_string());
+        save_runtime_state(target, url, total, &ranges, &final_written);
+        return Err(format!("已取消下载，已保留 {}，下次会自动继续", human_bytes(saved_bytes)));
     }
+    let _ = std::fs::remove_file(runtime_state_path(target));
 
     emit_runtime_progress(app, AiRuntimeProgress {
         runtime_id: runtime_id.to_string(),
@@ -1257,6 +1381,28 @@ fn chrono_like_now() -> String {
         .map(|value| value.as_secs())
         .unwrap_or(0);
     format!("{}", now)
+}
+
+/// 清除运行时下载缓存（含断点续传记录），下次会重新完整下载
+#[tauri::command]
+fn clear_ai_runtime_cache() -> Result<String, String> {
+    let paths = ensure_ai_dirs()?;
+    let cache = std::path::PathBuf::from(&paths.cache);
+    let mut removed = 0usize;
+    let entries = std::fs::read_dir(&cache).map_err(|e| format!("无法读取缓存目录: {}", e))?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let name = path.file_name().map(|value| value.to_string_lossy().to_string()).unwrap_or_default();
+        if name.ends_with(".7z") || name.ends_with(".zip") || name.ends_with(".state.json") {
+            if std::fs::remove_file(&path).is_ok() {
+                removed += 1;
+            }
+        }
+    }
+    Ok(format!("已清除 {} 个缓存文件", removed))
 }
 
 /// 回滚到上一个可运行的运行时版本
@@ -3505,7 +3651,7 @@ pub fn run() {
     open_url, get_documents_dir, get_download_dir, get_install_lang, get_install_config, set_storage_path,
       get_ai_paths, list_ai_runtime_catalog, get_ai_runtime_state, set_ai_runtime_installed,
       install_ai_runtime, cancel_ai_runtime_install, rollback_ai_runtime, start_ai_runtime,
-      find_bundled_ai_runtime,
+      find_bundled_ai_runtime, clear_ai_runtime_cache,
       get_system_status,
       convert_audio_batch, cancel_convert, open_path, reveal_in_folder,
       read_file_bytes, write_file_bytes, write_file_chunk, exists_path, get_file_size,

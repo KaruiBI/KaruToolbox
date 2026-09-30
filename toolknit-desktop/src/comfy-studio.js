@@ -65,6 +65,7 @@ const elements = {
     builtinProgressText: document.getElementById('comfyBuiltinProgressText'),
     installBuiltin: document.getElementById('comfyInstallBuiltin'),
     cancelBuiltinInstall: document.getElementById('comfyCancelBuiltinInstall'),
+    clearBuiltinCache: document.getElementById('comfyClearBuiltinCache'),
     installBuiltinLatest: document.getElementById('comfyInstallBuiltinLatest'),
     startBuiltin: document.getElementById('comfyStartBuiltin'),
     rollbackBuiltin: document.getElementById('comfyRollbackBuiltin'),
@@ -2640,6 +2641,15 @@ elements.builtinRuntime?.addEventListener('change', () => {
 });
 elements.installBuiltin?.addEventListener('click', () => installBuiltinRuntime('offline'));
 elements.installBuiltinLatest?.addEventListener('click', () => installBuiltinRuntime('online'));
+elements.clearBuiltinCache?.addEventListener('click', async () => {
+  if (builtinInstallActive) return;
+  try {
+    const message = await tauriInvoke('clear_ai_runtime_cache');
+    setBuiltinStatus('idle', message || builtinText('已清除下载缓存', 'Download cache cleared'));
+  } catch (error) {
+    setBuiltinStatus('error', error?.message || String(error));
+  }
+});
 elements.cancelBuiltinInstall?.addEventListener('click', async () => {
   try {
     await tauriInvoke('cancel_ai_runtime_install');
