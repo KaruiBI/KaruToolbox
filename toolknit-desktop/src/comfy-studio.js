@@ -69,7 +69,7 @@ const elements = {
     installBuiltinFromFile: document.getElementById('comfyInstallFromFile'),
     importExtractedBuiltin: document.getElementById('comfyImportExtracted'),
     builtinTutorial: document.getElementById('comfyBuiltinTutorial'),
-    installBuiltinLatest: document.getElementById('comfyInstallBuiltinLatest'),
+    openDownloadPage: document.getElementById('comfyOpenDownloadPage'),
     startBuiltin: document.getElementById('comfyStartBuiltin'),
     rollbackBuiltin: document.getElementById('comfyRollbackBuiltin'),
     engineStatus: document.getElementById('comfyEngineStatus'),
@@ -1188,7 +1188,7 @@ function setBuiltinStatus (state, message) {
 function setBuiltinBusy (busy) {
   [
     elements.installBuiltin,
-    elements.installBuiltinLatest,
+    elements.openDownloadPage,
     elements.startBuiltin,
     elements.rollbackBuiltin,
     elements.installBuiltinFromFile,
@@ -1274,7 +1274,7 @@ async function refreshBuiltinRuntimeState () {
     // 已安装：收起安装入口（一键安装/下载页/教程/本地导入），只留启动和回滚
     const setupOnly = [
       elements.installBuiltin,
-      elements.installBuiltinLatest,
+      elements.openDownloadPage,
       elements.installBuiltinFromFile,
       elements.importExtractedBuiltin,
       elements.builtinManual,
@@ -2729,7 +2729,7 @@ elements.builtinRuntime?.addEventListener('change', () => {
   refreshBuiltinDetectText();
 });
 elements.installBuiltin?.addEventListener('click', () => installBuiltinRuntime('offline'));
-elements.installBuiltinLatest?.addEventListener('click', async () => {
+elements.openDownloadPage?.addEventListener('click', async () => {
   // 浏览器下载到用户自己的下载位置，下完解压后从「导入已解压目录」导入
   const page = 'https://github.com/Comfy-Org/ComfyUI/releases/latest';
   try {
