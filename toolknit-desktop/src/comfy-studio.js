@@ -68,6 +68,7 @@ const elements = {
     clearBuiltinCache: document.getElementById('comfyClearBuiltinCache'),
     installBuiltinFromFile: document.getElementById('comfyInstallFromFile'),
     importExtractedBuiltin: document.getElementById('comfyImportExtracted'),
+    builtinTutorial: document.getElementById('comfyBuiltinTutorial'),
     installBuiltinLatest: document.getElementById('comfyInstallBuiltinLatest'),
     startBuiltin: document.getElementById('comfyStartBuiltin'),
     rollbackBuiltin: document.getElementById('comfyRollbackBuiltin'),
@@ -1255,7 +1256,8 @@ async function refreshBuiltinRuntimeState () {
   try {
     const state = await tauriInvoke('get_ai_runtime_state');
     const installed = state?.installed;
-    if (installed?.version) {
+    const hasInstall = !!installed?.version;
+    if (hasInstall) {
       setBuiltinStatus('online', builtinText(
         `内置引擎已安装：${installed.runtimeId || ''} ${installed.version}`,
         `Built-in engine installed: ${installed.runtimeId || ''} ${installed.version}`,
@@ -1266,6 +1268,16 @@ async function refreshBuiltinRuntimeState () {
         'Built-in engine is not installed yet. Click the button below to install it (~2GB).',
       ));
     }
+    // 已安装：收起安装入口（一键安装/下载页/教程/本地导入），只留启动和回滚
+    const setupOnly = [
+      elements.installBuiltin,
+      elements.installBuiltinLatest,
+      elements.installBuiltinFromFile,
+      elements.importExtractedBuiltin,
+      elements.builtinManual,
+      elements.builtinTutorial,
+    ];
+    setupOnly.forEach((item) => { if (item) item.hidden = hasInstall; });
     if (elements.rollbackBuiltin) elements.rollbackBuiltin.hidden = !installed?.previous;
     return state;
   } catch (error) {
